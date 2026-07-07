@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin</title>
+  <link rel="preconnect" href="https://wnavzhrkwgnegjdetdno.supabase.co">
+  <script>
+    (function(){
+      try{
+        if(window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone){
+          document.documentElement.classList.add('pwa-launching');
+        }
+      }catch(_error){}
+    })();
+  </script>
+  <link rel="stylesheet" href="css/admin.css?v=50">
+  <link rel="icon" href="./assets/favicon/favicon.ico" type="image/x-icon">
+  <link rel="apple-touch-icon" href="./assets/favicon/apple-icon-180x180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#f5fff4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wellone Admin">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+  <div id="pwaLaunchSplash" class="app-launch-splash" aria-hidden="true">
+    <img src="assets/logo.png?v=50" alt="" width="3144" height="824" fetchpriority="high">
+  </div>
+  <section id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card">
+      <img src="assets/logo.png?v=50" alt="Wellone logo" width="3144" height="824" decoding="async">
+      <p class="tag">secure admin</p>
+      <h1>Admin</h1>
+      <input id="adminEmailInput" type="email" placeholder="Admin email" autocomplete="username" required>
+      <input id="adminPasswordInput" type="password" placeholder="Admin password" autocomplete="current-password" required>
+      <button type="submit">Login</button>
+      <p id="loginError" class="login-error"></p>
+    </form>
+  </section>
+
+  <div id="adminShell" class="admin-shell is-locked">
+    <header class="admin-head">
+      <a class="admin-logo"><img src="assets/logo.png?v=50" alt="Wellone" width="3144" height="824" decoding="async"></a>
+      <button id="menuToggle" class="menu-toggle" type="button">☰</button>
+      <nav id="adminMenu" class="admin-menu">
+        <button data-view="products" class="active" type="button">Products</button>
+        <button data-view="add" type="button">Add Product</button>
+        <button data-view="categories" type="button">Categories</button>
+        <button data-view="offers" type="button">Offer Slides</button>
+        <button data-view="terms" type="button">Terms</button>
+        <button id="logoutBtn" type="button">Logout</button>
+      </nav>
+    </header>
+
+    <section class="status-card"><span id="statusText">Login required</span></section>
+
+    <main>
+      <section id="viewProducts" class="view-panel active clean-card">
+        <div class="panel-head">
+          <div><p class="tag">products</p><h1>Product list</h1></div>
+          <button id="newProductBtn" class="submit-small" type="button">+ Add product</button>
+        </div>
+        <div class="list-controls">
+          <select id="productCategoryFilter"></select>
+          <input id="searchProducts" type="search" placeholder="Search products, category, subcategory or price">
+          <button id="reloadProductsBtn" type="button">Load</button>
+        </div>
+        <div id="productList" class="product-list"></div>
+        <button id="loadMoreProductsBtn" class="load-more hide" type="button">Load more products</button>
+      </section>
+
+      <section id="viewAdd" class="view-panel clean-card">
+        <div class="panel-head"><div><p class="tag">product editor</p><h1 id="formTitle">Add product</h1></div></div>
+        <form id="productForm" class="product-form">
+          <input id="editId" type="hidden">
+          <div class="product-form-grid">
+            <div>
+              <div id="photoPicker" class="photo-picker"><span>🖼️</span><b>Add product images</b><small>Multiple images</small></div>
+              <input id="photoInput" type="file" accept="image/*" multiple hidden>
+              <input id="photoCameraInput" type="file" accept="image/*" capture="environment" hidden>
+              <div id="previewGrid" class="preview-grid"></div>
+              <button id="clearAllImagesBtn" class="ghost-btn" type="button">Clear images</button>
+            </div>
+            <div class="form-fields">
+              <div class="field-row">
+                <label>Category<input id="category" list="categoryOptions" placeholder="Category" required></label>
+                <label>Subcategory / filter<input id="subcategory" placeholder="Subcategory"></label>
+              </div>
+              <datalist id="categoryOptions"></datalist><small id="categoryHint" class="hint hide"></small>
+              
+              <label>Product name<input id="productName" placeholder="Name" required></label>
+              <div class="field-row three price-availability-row">
+                <label>MRP / crossed price<input id="mrp" inputmode="numeric" placeholder="1099"></label>
+                <label>Final price<input id="price" inputmode="numeric" placeholder="679" required></label>
+                <label>Availability<select id="availability"><option value="in_stock">Available</option><option value="out_of_stock">Out of stock</option><option value="hidden">Hide product</option></select></label>
+              </div>
+              <div class="field-row three">
+                <label>Option title<input id="optionTitle" placeholder="Size / Quantity / Litre / Metre"></label>
+                <label>Same-price options<input id="sizes" placeholder="7, 8, 9 or 250ml, 500ml"></label>
+                <label>Colours (same price/images)<input id="colors" placeholder="Black, White, Default"></label>
+              </div>
+              <label>Description<textarea id="description" rows="3" placeholder="Short product detail"></textarea></label>
+              <div class="term-picker"><b>Terms</b><div id="productTermChecks" class="check-grid"></div></div>
+              <div class="variant-box">
+                <div class="variant-head"><b>Colour variants</b><button id="addVariantBtn" type="button">+ Add variants</button></div>
+                <div id="variantList" class="variant-list"></div>
+              </div>
+              <div class="save-row">
+                <button id="cancelEditBtn" class="ghost-btn hide" type="button">Cancel</button>
+                <button id="deleteBtn" class="delete-btn" type="button" style="display:none">Delete</button>
+                <button id="saveBtn" class="submit-btn" type="submit">Save Product</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section id="viewCategories" class="view-panel clean-card">
+        <div class="panel-head"><div><p class="tag">categories</p><h1>Category cards</h1></div></div>
+        <form id="categoryForm" class="category-form">
+          <input id="categoryOldName" type="hidden">
+          <div class="category-form-grid">
+            <div>
+              <div id="categoryPhotoPicker" class="photo-picker small"><span>📁</span><b>Select category image</b></div>
+              <input id="categoryImageInput" type="file" accept="image/*" hidden>
+              <input id="categoryCameraInput" type="file" accept="image/*" capture="environment" hidden>
+              <div id="categoryPreviewWrap" class="single-preview"><img id="categoryPreview" alt=""></div>
+            </div>
+            <div>
+              <label>Category name<input id="categoryNameInput" list="categoryManagerOptions" placeholder="Category" required></label>
+              <datalist id="categoryManagerOptions"></datalist>
+              <label>Mini description<input id="categoryDescriptionInput" placeholder="Discover premium Cosmetics collections."></label>
+              <div class="save-row"><button id="deleteCategoryBtn" class="delete-btn" type="button" style="display:none">Delete</button><button id="saveCategoryBtn" class="submit-btn" type="submit">Save Category</button></div>
+            </div>
+          </div>
+        </form>
+        <div id="categoryManagerList" class="category-list"></div>
+      </section>
+
+      <section id="viewOffers" class="view-panel clean-card">
+        <div class="panel-head"><div><p class="tag">home banner</p><h1>Discount banners</h1><p>Add only a banner image and redirect link. Recommended size: 1599 × 780.</p></div></div>
+        <form id="offerForm" class="offer-form">
+          <input id="offerId" type="hidden">
+          <input id="offerTitle" type="hidden">
+          <input id="offerMrp" type="hidden">
+          <input id="offerPrice" type="hidden">
+          <input id="offerQuantity" type="hidden">
+          <div class="category-form-grid">
+            <div>
+              <div id="offerPhotoPicker" class="photo-picker small"><span>🖼️</span><b>Select banner image</b><small>Recommended: 1599 × 780</small></div>
+              <input id="offerImageInput" type="file" accept="image/*" hidden>
+              <div id="offerPreviewWrap" class="single-preview"><img id="offerPreview" alt=""></div>
+            </div>
+            <div class="form-fields">
+              <label>Redirect link<input id="offerLink" placeholder="catalog.html?cat=Cosmetics or https://..."></label>
+              <label class="inline-check"><input id="offerActive" type="checkbox" checked> Show this banner</label>
+              <div class="save-row"><button id="cancelOfferBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Banner</button></div>
+            </div>
+          </div>
+        </form>
+        <div id="offerList" class="product-list"></div>
+      </section>
+
+      <section id="viewTerms" class="view-panel clean-card">
+        <div class="panel-head"><div><p class="tag">terms</p><h1>Terms</h1></div></div>
+        <form id="termForm" class="term-form">
+          <input id="termOldLabel" type="hidden">
+          <div class="field-row"><label>Term label<input id="termLabel" placeholder="Non refundable"></label><label>Icon / symbol<input id="termIcon" placeholder="🚫"></label></div>
+          <label>Description<input id="termDescription" placeholder="This item cannot be refunded after purchase"></label>
+          <div class="save-row"><button id="resetTermBtn" class="ghost-btn" type="button">Reset</button><button id="deleteTermBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Term</button></div>
+        </form>
+        <div id="termList" class="term-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/admin-config.js?v=50"></script>
+  <script src="js/admin.js?v=50"></script>
+  <script src="js/pwa-install.js?v=50"></script>
+</body>
+</html>

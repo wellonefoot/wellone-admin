@@ -1,0 +1,66 @@
+{
+  "id": "wellone-admin-panel",
+  "name": "Wellone Admin",
+  "short_name": "Wellone Admin",
+  "description": "Installable Wellone administration panel.",
+  "start_url": "./index.html?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#f5fff4",
+  "theme_color": "#f5fff4",
+  "orientation": "portrait-primary",
+  "categories": [
+    "business"
+  ],
+  "icons": [
+    {
+      "src": "assets/favicon/favicon-16x16.png?v=50",
+      "sizes": "16x16",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/favicon/favicon-32x32.png?v=50",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/favicon/apple-icon-180x180.png?v=50",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/favicon/wellone-icon-192-v46.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/favicon/wellone-icon-512-v46.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/favicon/wellone-icon-192-maskable-v46.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "assets/favicon/wellone-icon-512-maskable-v46.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
+}
