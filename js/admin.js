@@ -13,7 +13,7 @@ const PRODUCT_SELECT = `
   categories(id,name,image_url,storage_path,description),
   subcategories(id,name),
   product_images(id,image_url,storage_path,sort_order),
-  product_variants(id,label,mrp,price,image_url,image_urls,storage_paths,terms,unit,stock,sort_order)
+  product_variants(id,label,mrp,price,image_url,image_urls,storage_paths,terms,unit,stock,stock_status,sort_order)
 `;
 const PRODUCT_LIST_SELECT = `
   id,name,slug,description,mrp,price,main_image_url,status,stock_status,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
@@ -99,7 +99,7 @@ function normalizeProduct(row){
     variants: variants.map(v => {
       const urls = splitList(v.image_urls || v.image_url || []);
       const paths = splitList(v.storage_paths || []);
-      return {id:v.id, label:clean(v.label || ''), mrp:price(v.mrp) || '', price:price(v.price) || '', unit:clean(v.unit || ''), images:urls, storagePaths:paths.length ? paths : urls.map(storagePathFromUrl).filter(Boolean), terms:splitList(v.terms || [])};
+      return {id:v.id, label:clean(v.label || ''), mrp:price(v.mrp) || '', price:price(v.price) || '', unit:clean(v.unit || ''), images:urls, storagePaths:paths.length ? paths : urls.map(storagePathFromUrl).filter(Boolean), terms:splitList(v.terms || []), stockStatus:clean(v.stock_status || 'in_stock')};
     })
   };
 }
@@ -112,6 +112,12 @@ async function requireAdmin(){
   if(error) throw error;
   if(!data) throw new Error('This login is not added in admin_users. Add this user UID in Supabase first.');
   return user;
+}
+async function ensureVariantAvailabilityReady(){
+  const {error} = await supabaseClient().from('product_variants').select('stock_status').limit(1);
+  if(!error) return;
+  if(/stock_status|column/i.test(error.message || '')) throw new Error('Run supabase/04_add_variant_availability.sql in Supabase first.');
+  throw error;
 }
 async function validateLogin(email, password){
   if(!email || !password) throw new Error('Enter admin email and password');
@@ -266,6 +272,7 @@ function variantRowHtml(v,i){
   return `<article class="variant-row" data-variant-index="${i}" data-existing-images='${esc(JSON.stringify(v.images || []))}' data-existing-paths='${esc(JSON.stringify(v.storagePaths || []))}'>
     <div class="variant-title"><b>Colour ${i+1}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
     <div class="field-row variant-main-fields"><label>Colour name<input class="variant-color" value="${esc(v.unit || v.color || '')}" placeholder="Gold / Silver / Black / Green"></label><label>Sizes optional<input class="variant-sizes" value="${esc(v.label || v.sizes || '')}" placeholder="Empty = use main item sizes"></label></div>
+    <label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label>
     <div class="field-row"><label>MRP optional<input class="variant-mrp" value="${esc(v.mrp || '')}" placeholder="Empty = use main item MRP"></label><label>Final price optional<input class="variant-price" value="${esc(v.price || '')}" placeholder="Empty = use main item price"></label></div>
     <label class="fake-label">Separate colour images optional<small class="hint inline-hint">Leave empty to use the main item images.</small></label>
     <div class="variant-images">${imgs}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label></div>
@@ -278,6 +285,7 @@ function collectVariantRows(){
     sizes:clean(row.querySelector('.variant-sizes')?.value),
     mrp:price(row.querySelector('.variant-mrp')?.value),
     price:price(row.querySelector('.variant-price')?.value),
+    stockStatus:clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
     terms:[],
     existingImages:JSON.parse(row.dataset.existingImages || '[]'),
     existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
@@ -291,7 +299,7 @@ async function collectVariantsPayload(){
   const variants = [];
   for(const item of rows){
     const uploaded = await uploadFiles(item.files, 'variants');
-    variants.push({color:item.color, sizes:item.sizes, mrp:item.mrp, price:item.price, terms:item.terms, imageUrls:item.existingImages.concat(uploaded.map(x=>x.url)), storagePaths:item.existingPaths.concat(uploaded.map(x=>x.path))});
+    variants.push({color:item.color, sizes:item.sizes, mrp:item.mrp, price:item.price, stockStatus:item.stockStatus || 'in_stock', terms:item.terms, imageUrls:item.existingImages.concat(uploaded.map(x=>x.url)), storagePaths:item.existingPaths.concat(uploaded.map(x=>x.path))});
   }
   return variants;
 }
@@ -308,12 +316,14 @@ function readVariantRowData(row){
     label: clean(row.querySelector('.variant-sizes')?.value),
     mrp: price(row.querySelector('.variant-mrp')?.value),
     price: price(row.querySelector('.variant-price')?.value),
+    stockStatus: clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
     images: JSON.parse(row.dataset.existingImages || '[]'),
     storagePaths: JSON.parse(row.dataset.existingPaths || '[]'),
     terms: []
   };
 }
 async function openProduct(id){
+  await ensureVariantAvailabilityReady();
   const {data,error}=await supabaseClient().from('products').select(PRODUCT_SELECT).eq('id', id).single();
   if(error) throw error;
   const p = normalizeProduct(data);
@@ -327,6 +337,7 @@ async function saveProduct(event){
   event.preventDefault();
   try{
     await requireAdmin();
+    await ensureVariantAvailabilityReady();
     const id = clean($('editId').value), categoryName = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
     if(!categoryName || !name || !pr) throw new Error('Fill category, name and final price');
     if(!id && !currentImages.length && !newImageFiles.length && !collectVariantRows().some(v=>v.files.length || v.existingImages.length)) throw new Error('Choose at least one product image');
@@ -359,8 +370,8 @@ async function saveProduct(event){
     const variantRows = await collectVariantsPayload();
     await supabaseClient().from('product_variants').delete().eq('product_id', productId);
     if(variantRows.length){
-      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color, mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, sort_order:i}));
-      const {error}=await supabaseClient().from('product_variants').insert(rows); if(error) throw error;
+      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color, mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock_status:v.stockStatus || 'in_stock', sort_order:i}));
+      const {error}=await supabaseClient().from('product_variants').insert(rows); if(error){ if(/stock_status/i.test(error.message || '')) throw new Error('Run supabase/04_add_variant_availability.sql in Supabase, then save again.'); throw error; }
     }
     const keepPaths = new Set(allPaths.concat(variantRows.flatMap(v=>v.storagePaths)));
     await removeStorage(oldImagePaths.concat(oldVariantPaths).filter(p => !keepPaths.has(p)));
