@@ -176,3 +176,14 @@ html.pwa-launching .app-launch-splash img{
 html.pwa-launching .app-launch-splash.is-leaving{opacity:0;visibility:hidden;}
 @keyframes adminPwaSplashIn{from{opacity:0;transform:translateY(6px) scale(.975)}to{opacity:1;transform:none}}
 @media(max-width:780px){html.pwa-launching .app-launch-splash img{width:min(68vw,430px);max-height:80px;}}
+
+
+/* Generic size / option / colour variant editor */
+.variant-row .variant-kind,.variant-row .variant-availability{min-height:44px;border-radius:14px;border:1px solid #dfe8c8;background:#fff;padding:0 12px;font-weight:800;color:#1b2230}
+.variant-row .variant-color-sizes{margin-top:10px}
+.variant-row .variant-stock-price-row{margin-top:10px}
+.variant-row .variant-new-image{outline:2px solid rgba(171,207,59,.28)}
+.variant-row .variant-value{font-weight:900}
+@media(max-width:640px){.variant-row .variant-stock-price-row{grid-template-columns:1fr}}
+
+.variant-help{display:block;margin-top:7px;color:#667085;font-size:12px;font-weight:700;line-height:1.45}

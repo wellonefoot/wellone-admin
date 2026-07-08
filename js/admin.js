@@ -265,55 +265,135 @@ function renderVariantRows(list = []){
   const rows = Array.isArray(list) ? list : [];
   $('variantList').innerHTML = rows.length
     ? rows.map((v,i)=>variantRowHtml(v || {},i)).join('')
-    : '<div class="empty variant-empty"><b>No colour variants added.</b><span>Add a colour only when it needs separate images, price, or sizes.</span></div>';
+    : '<div class="empty variant-empty"><b>No custom variants added.</b><span>Add only a size, option, or colour that needs its own price, images, or availability.</span></div>';
+  $('variantList').querySelectorAll('.variant-row').forEach(initializeVariantRow);
+}
+function variantKind(v = {}){
+  const explicit = clean(v.kind || v.variantKind || '');
+  if(explicit === 'color' || explicit === 'colour') return 'color';
+  return clean(v.unit || v.color || '') ? 'color' : 'option';
 }
 function variantRowHtml(v,i){
-  const imgs = (v.images || []).map((url,idx)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-image="${i}:${idx}">×</button></div>`).join('');
+  const kind = variantKind(v);
+  const value = kind === 'color' ? clean(v.unit || v.color || '') : clean(v.label || v.value || '');
+  const colourSizes = kind === 'color' ? clean(v.label || v.sizes || '') : '';
+  const imgs = (v.images || []).map((url,idx)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${idx}" aria-label="Remove image">×</button></div>`).join('');
   return `<article class="variant-row" data-variant-index="${i}" data-existing-images='${esc(JSON.stringify(v.images || []))}' data-existing-paths='${esc(JSON.stringify(v.storagePaths || []))}'>
-    <div class="variant-title"><b>Colour ${i+1}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
-    <div class="field-row variant-main-fields"><label>Colour name<input class="variant-color" value="${esc(v.unit || v.color || '')}" placeholder="Gold / Silver / Black / Green"></label><label>Sizes optional<input class="variant-sizes" value="${esc(v.label || v.sizes || '')}" placeholder="Empty = use main item sizes"></label></div>
-    <label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label>
-    <div class="field-row"><label>MRP optional<input class="variant-mrp" value="${esc(v.mrp || '')}" placeholder="Empty = use main item MRP"></label><label>Final price optional<input class="variant-price" value="${esc(v.price || '')}" placeholder="Empty = use main item price"></label></div>
-    <label class="fake-label">Separate colour images optional<small class="hint inline-hint">Leave empty to use the main item images.</small></label>
+    <div class="variant-title"><b>Variant ${i+1}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
+    <div class="field-row variant-main-fields">
+      <label>Variant type<select class="variant-kind"><option value="option" ${kind === 'option' ? 'selected' : ''}>Size / option</option><option value="color" ${kind === 'color' ? 'selected' : ''}>Colour</option></select></label>
+      <label class="variant-value-label"><span class="variant-value-title">${kind === 'color' ? 'Colour name' : 'Size / option value'}</span><input class="variant-value" value="${esc(value)}" placeholder="${kind === 'color' ? 'Gold / Silver / Black' : '9 / 500ml / Large'}"></label>
+    </div>
+    <label class="variant-color-sizes ${kind === 'color' ? '' : 'hide'}">Sizes for this colour optional<input class="variant-sizes" value="${esc(colourSizes)}" placeholder="8, 9, 10 — empty uses main options"></label>
+    <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label><label>MRP optional<input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Empty = main MRP"></label></div>
+    <label>Final price optional<input class="variant-price" inputmode="numeric" value="${esc(v.price || '')}" placeholder="Empty = main price"></label>
+    <label class="fake-label">Separate images optional<small class="hint inline-hint">Leave empty to use the main product images.</small></label>
     <div class="variant-images">${imgs}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label></div>
   </article>`;
 }
-function collectVariantRows(){
-  return Array.from(document.querySelectorAll('.variant-row')).map(row => ({
-    row,
-    color:clean(row.querySelector('.variant-color')?.value),
-    sizes:clean(row.querySelector('.variant-sizes')?.value),
-    mrp:price(row.querySelector('.variant-mrp')?.value),
-    price:price(row.querySelector('.variant-price')?.value),
-    stockStatus:clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
-    terms:[],
-    existingImages:JSON.parse(row.dataset.existingImages || '[]'),
-    existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
-    files:Array.from(row.querySelector('.variant-files')?.files || [])
-  })).filter(v => v.color || v.sizes || v.mrp || v.price || v.existingImages.length || v.files.length);
+function initializeVariantRow(row){
+  if(!row) return;
+  row.__variantFiles = [];
+  updateVariantRowMode(row);
 }
-async function collectVariantsPayload(){
-  const rows = collectVariantRows();
-  const missingColor = rows.find(item => !item.color);
-  if(missingColor) throw new Error('Enter a colour name for every colour variant');
+function updateVariantRowMode(row){
+  if(!row) return;
+  const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
+  const title = row.querySelector('.variant-value-title');
+  const input = row.querySelector('.variant-value');
+  const colourSizes = row.querySelector('.variant-color-sizes');
+  if(title) title.textContent = kind === 'color' ? 'Colour name' : (clean($('optionTitle')?.value) || 'Size / option') + ' value';
+  if(input) input.placeholder = kind === 'color' ? 'Gold / Silver / Black' : '9 / 500ml / Large';
+  colourSizes?.classList.toggle('hide', kind !== 'color');
+  updateVariantRowTitle(row);
+}
+function updateVariantRowTitle(row){
+  if(!row) return;
+  const index = Number(row.dataset.variantIndex || 0) + 1;
+  const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
+  const value = clean(row.querySelector('.variant-value')?.value);
+  const title = row.querySelector('.variant-title b');
+  if(title) title.textContent = value || `${kind === 'color' ? 'Colour' : 'Size / option'} ${index}`;
+}
+function renumberVariantRows(){
+  $('variantList').querySelectorAll('.variant-row').forEach((row,index)=>{
+    row.dataset.variantIndex = String(index);
+    updateVariantRowTitle(row);
+  });
+}
+function renderVariantImages(row){
+  if(!row) return;
+  const holder = row.querySelector('.variant-images');
+  if(!holder) return;
+  const existing = JSON.parse(row.dataset.existingImages || '[]');
+  const files = Array.isArray(row.__variantFiles) ? row.__variantFiles : [];
+  const existingHtml = existing.map((url,index)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${index}" aria-label="Remove image">×</button></div>`).join('');
+  const newHtml = files.map((file,index)=>`<div class="variant-img-chip variant-new-image"><img src="${esc(URL.createObjectURL(file))}"><button type="button" data-remove-variant-new="${index}" aria-label="Remove selected image">×</button></div>`).join('');
+  holder.innerHTML = `${existingHtml}${newHtml}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label>`;
+  row.classList.toggle('has-new-images', files.length > 0);
+}
+function collectVariantRows(){
+  return Array.from(document.querySelectorAll('.variant-row')).map(row => {
+    const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
+    return {
+      row,
+      kind,
+      value:clean(row.querySelector('.variant-value')?.value),
+      sizes:kind === 'color' ? clean(row.querySelector('.variant-sizes')?.value) : '',
+      mrp:price(row.querySelector('.variant-mrp')?.value),
+      price:price(row.querySelector('.variant-price')?.value),
+      stockStatus:clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
+      terms:[],
+      existingImages:JSON.parse(row.dataset.existingImages || '[]'),
+      existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
+      files:Array.isArray(row.__variantFiles) ? row.__variantFiles : []
+    };
+  }).filter(v => v.value || v.sizes || v.mrp || v.price || v.existingImages.length || v.files.length);
+}
+function validateVariantRows(rows){
+  const used = new Set();
+  const kinds = new Set(rows.map(item=>item.kind));
+  if(kinds.size > 1) throw new Error('Use either Size / option variants or Colour variants for one product. For colour variants, add their sizes inside “Sizes for this colour”.');
+  for(const item of rows){
+    if(!item.value) throw new Error(`Enter the ${item.kind === 'color' ? 'colour name' : 'size / option value'} for every variant`);
+    const duplicateKey = `${item.kind}:${key(item.value)}`;
+    if(used.has(duplicateKey)) throw new Error(`Duplicate variant: ${item.value}`);
+    used.add(duplicateKey);
+  }
+}
+async function collectVariantsPayload(rows, uploadedPaths = []){
   const variants = [];
   for(const item of rows){
     const uploaded = await uploadFiles(item.files, 'variants');
-    variants.push({color:item.color, sizes:item.sizes, mrp:item.mrp, price:item.price, stockStatus:item.stockStatus || 'in_stock', terms:item.terms, imageUrls:item.existingImages.concat(uploaded.map(x=>x.url)), storagePaths:item.existingPaths.concat(uploaded.map(x=>x.path))});
+    uploadedPaths.push(...uploaded.map(x=>x.path));
+    variants.push({
+      kind:item.kind,
+      color:item.kind === 'color' ? item.value : '',
+      sizes:item.kind === 'color' ? item.sizes : item.value,
+      mrp:item.mrp,
+      price:item.price,
+      stockStatus:item.stockStatus || 'in_stock',
+      terms:item.terms,
+      imageUrls:item.existingImages.concat(uploaded.map(x=>x.url)),
+      storagePaths:item.existingPaths.concat(uploaded.map(x=>x.path))
+    });
   }
   return variants;
 }
-
 function appendVariantRow(data = {}){
   const list = $('variantList');
   list.querySelector('.variant-empty')?.remove();
   const index = list.querySelectorAll('.variant-row').length;
   list.insertAdjacentHTML('beforeend', variantRowHtml(data, index));
+  initializeVariantRow(list.lastElementChild);
 }
 function readVariantRowData(row){
+  const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
+  const value = clean(row.querySelector('.variant-value')?.value);
   return {
-    unit: clean(row.querySelector('.variant-color')?.value),
-    label: clean(row.querySelector('.variant-sizes')?.value),
+    kind,
+    unit: kind === 'color' ? value : '',
+    label: kind === 'color' ? clean(row.querySelector('.variant-sizes')?.value) : value,
     mrp: price(row.querySelector('.variant-mrp')?.value),
     price: price(row.querySelector('.variant-price')?.value),
     stockStatus: clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
@@ -335,48 +415,57 @@ async function openProduct(id){
 }
 async function saveProduct(event){
   event.preventDefault();
+  const newlyUploadedPaths = [];
+  let databaseWriteStarted = false;
   try{
     await requireAdmin();
     await ensureVariantAvailabilityReady();
     const id = clean($('editId').value), categoryName = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
     if(!categoryName || !name || !pr) throw new Error('Fill category, name and final price');
-    if(!id && !currentImages.length && !newImageFiles.length && !collectVariantRows().some(v=>v.files.length || v.existingImages.length)) throw new Error('Choose at least one product image');
+    const variantDrafts = collectVariantRows();
+    validateVariantRows(variantDrafts);
+    if(!id && !currentImages.length && !newImageFiles.length && !variantDrafts.some(v=>v.files.length || v.existingImages.length)) throw new Error('Choose at least one product image');
     showBusy(id ? 'Updating product...' : 'Saving product...'); setStatus(id ? 'Updating product...' : 'Saving product...', 'loading');
     const category = await ensureCategory(categoryName);
     const sub = await ensureSubcategory(category.id, clean($('subcategory').value));
     const newUploads = await uploadFiles(newImageFiles, 'products');
+    newlyUploadedPaths.push(...newUploads.map(x=>x.path));
+    const variantRows = await collectVariantsPayload(variantDrafts, newlyUploadedPaths);
     const allImages = currentImages.concat(newUploads.map(x=>x.url));
     const allPaths = currentImages.map(storagePathFromUrl).filter(Boolean).concat(newUploads.map(x=>x.path));
     const availability = clean($('availability')?.value || 'in_stock');
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || 'Standard', colors:clean($('colors').value) || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock', updated_at:new Date().toISOString()};
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || variantRows.find(v=>v.kind === 'option')?.sizes || 'Standard', colors:clean($('colors').value) || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock', updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];
+    databaseWriteStarted = true;
     if(id){
-      const {data:oldImgs}=await supabaseClient().from('product_images').select('storage_path,image_url').eq('product_id', id);
+      const {data:oldImgs,error:oldImgsError}=await supabaseClient().from('product_images').select('storage_path,image_url').eq('product_id', id); if(oldImgsError) throw oldImgsError;
       oldImagePaths = (oldImgs || []).map(x=>x.storage_path || storagePathFromUrl(x.image_url)).filter(Boolean);
-      const {data:oldVars}=await supabaseClient().from('product_variants').select('storage_paths,image_url,image_urls').eq('product_id', id);
+      const {data:oldVars,error:oldVarsError}=await supabaseClient().from('product_variants').select('storage_paths,image_url,image_urls').eq('product_id', id); if(oldVarsError) throw oldVarsError;
       oldVariantPaths = (oldVars || []).flatMap(v => splitList(v.storage_paths || []).concat(splitList(v.image_urls || v.image_url || []).map(storagePathFromUrl))).filter(Boolean);
       const {error}=await supabaseClient().from('products').update(row).eq('id', id); if(error) throw error;
     }else{
       row.created_at = new Date().toISOString();
       const {data,error}=await supabaseClient().from('products').insert(row).select('id').single(); if(error) throw error; productId = data.id;
     }
-    await supabaseClient().from('product_images').delete().eq('product_id', productId);
+    const deleteImages = await supabaseClient().from('product_images').delete().eq('product_id', productId); if(deleteImages.error) throw deleteImages.error;
     if(allImages.length){
       const imageRows = allImages.map((url,i)=>({product_id:productId, image_url:url, storage_path:allPaths[i] || storagePathFromUrl(url), sort_order:i}));
       const {error}=await supabaseClient().from('product_images').insert(imageRows); if(error) throw error;
     }
-    const variantRows = await collectVariantsPayload();
-    await supabaseClient().from('product_variants').delete().eq('product_id', productId);
+    const deleteVariants = await supabaseClient().from('product_variants').delete().eq('product_id', productId); if(deleteVariants.error) throw deleteVariants.error;
     if(variantRows.length){
-      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color, mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock_status:v.stockStatus || 'in_stock', sort_order:i}));
+      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color || '', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock_status:v.stockStatus || 'in_stock', sort_order:i}));
       const {error}=await supabaseClient().from('product_variants').insert(rows); if(error){ if(/stock_status/i.test(error.message || '')) throw new Error('Run supabase/04_add_variant_availability.sql in Supabase, then save again.'); throw error; }
     }
     const keepPaths = new Set(allPaths.concat(variantRows.flatMap(v=>v.storagePaths)));
     await removeStorage(oldImagePaths.concat(oldVariantPaths).filter(p => !keepPaths.has(p)));
     await refreshMeta(); await loadProducts(true); resetProduct(); hideBusy(); setStatus(id ? 'Product updated ✅' : 'Product saved ✅', 'ok');
-  }catch(err){ hideBusy(); setStatus(err.message, 'error'); }
+  }catch(err){
+    if(!databaseWriteStarted && newlyUploadedPaths.length) await removeStorage(newlyUploadedPaths).catch(()=>{});
+    hideBusy(); setStatus(err.message, 'error');
+  }
 }
 async function deleteProduct(){
   const id = clean($('editId').value); if(!id) return;
@@ -447,7 +536,7 @@ function bindEvents(){
   $('photoPicker').addEventListener('click', () => $('photoInput').click());
   $('photoInput').addEventListener('change', () => { newImageFiles.push(...Array.from($('photoInput').files || [])); $('photoInput').value=''; renderImagePreviews(); });
   $('clearAllImagesBtn').addEventListener('click', clearProductImages);
-  $('addVariantBtn').addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); appendVariantRow({label:'',mrp:'',price:'',images:[],storagePaths:[],terms:[]}); });
+  $('addVariantBtn').addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); appendVariantRow({kind:'option',label:'',mrp:'',price:'',images:[],storagePaths:[],terms:[]}); });
   $('productForm').addEventListener('submit', saveProduct); $('deleteBtn').addEventListener('click', deleteProduct); $('cancelEditBtn').addEventListener('click', resetProduct);
   $('categoryPhotoPicker').addEventListener('click', () => $('categoryImageInput').click());
   $('categoryImageInput').addEventListener('change', () => { currentCategoryFile = $('categoryImageInput').files[0] || null; if(currentCategoryFile) $('categoryPreview').src = URL.createObjectURL(currentCategoryFile); });
@@ -463,10 +552,17 @@ function bindEvents(){
     const term = e.target.closest('[data-term-edit]'); if(term) openTerm(term.dataset.termEdit);
     const re = e.target.closest('[data-remove-existing-image]'); if(re){ currentImages.splice(Number(re.dataset.removeExistingImage),1); renderImagePreviews(); }
     const rn = e.target.closest('[data-remove-new-image]'); if(rn){ newImageFiles.splice(Number(rn.dataset.removeNewImage),1); renderImagePreviews(); }
-    const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!document.querySelector('.variant-row')) renderVariantRows([]); }
-    const rvi = e.target.closest('[data-remove-variant-image]'); if(rvi){ const imgIndex = Number((rvi.dataset.removeVariantImage || '0:0').split(':')[1] || 0); const row = rvi.closest('.variant-row'); if(row){ const imgs = JSON.parse(row.dataset.existingImages || '[]'); const paths = JSON.parse(row.dataset.existingPaths || '[]'); imgs.splice(imgIndex,1); paths.splice(imgIndex,1); row.dataset.existingImages = JSON.stringify(imgs); row.dataset.existingPaths = JSON.stringify(paths); rvi.closest('.variant-img-chip')?.remove(); } }
+    const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!$('variantList').querySelector('.variant-row')) renderVariantRows([]); else renumberVariantRows(); }
+    const existingImage = e.target.closest('[data-remove-variant-existing]'); if(existingImage){ const row=existingImage.closest('.variant-row'); if(row){ const index=Number(existingImage.dataset.removeVariantExisting || 0); const imgs=JSON.parse(row.dataset.existingImages || '[]'); const paths=JSON.parse(row.dataset.existingPaths || '[]'); imgs.splice(index,1); paths.splice(index,1); row.dataset.existingImages=JSON.stringify(imgs); row.dataset.existingPaths=JSON.stringify(paths); renderVariantImages(row); } }
+    const newImage = e.target.closest('[data-remove-variant-new]'); if(newImage){ const row=newImage.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.splice(Number(newImage.dataset.removeVariantNew || 0),1); renderVariantImages(row); } }
   });
-  document.addEventListener('change', e => { if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); row?.classList.add('has-new-images'); const label=row?.querySelector('.mini-upload'); const count=e.target.files?.length || 0; if(label && count) label.childNodes[0].textContent = `+ ${count} selected`; } });
-  document.addEventListener('input', e => { if(e.target.classList.contains('variant-color')){ const row=e.target.closest('.variant-row'); const title=row?.querySelector('.variant-title b'); if(title){ const index=Number(row.dataset.variantIndex || 0)+1; title.textContent=clean(e.target.value) || `Colour option ${index}`; } } });
+  document.addEventListener('change', e => {
+    if(e.target.classList.contains('variant-kind')) updateVariantRowMode(e.target.closest('.variant-row'));
+    if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.push(...Array.from(e.target.files || [])); e.target.value=''; renderVariantImages(row); } }
+  });
+  document.addEventListener('input', e => {
+    if(e.target.classList.contains('variant-value')) updateVariantRowTitle(e.target.closest('.variant-row'));
+    if(e.target.id === 'optionTitle') $('variantList').querySelectorAll('.variant-row').forEach(updateVariantRowMode);
+  });
 }
 bindEvents(); renderVariantRows([]); lockAdmin();
