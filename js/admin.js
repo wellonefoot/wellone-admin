@@ -7,6 +7,34 @@ const slugify = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/
 const splitList = v => Array.isArray(v) ? v.map(clean).filter(Boolean) : clean(v).split(/[|,\n]+/).map(x=>x.trim()).filter(Boolean);
 const price = v => { v = clean(v).replace(/[₹,]/g,''); return v ? v : null; };
 const rupee = v => price(v) ? '₹' + price(v) : '';
+// Add a future selectable policy here, then add its SVG path in policyIconSvg().
+const FIXED_PRODUCT_TERMS = Object.freeze([
+  {key:'exchange', label:'7 Day Exchange Policy', description:'Eligible items can be exchanged within 7 days.'},
+  {key:'delivery', label:'Free Delivery', description:'No delivery charge for this product.'},
+  {key:'no-return', label:'No Return Allowed', description:'Returns and refunds are not available.'},
+  {key:'pay-delivery', label:'Pay on Delivery', description:'Pay when your order is delivered.'},
+  {key:'secure', label:'Secure Transaction', description:'Your order details are handled securely.'}
+]);
+function policyKeyFromLabel(value){
+  const label = key(value).replace(/[^a-z0-9]/g,'');
+  if(!label) return '';
+  if(label.includes('exchange')) return 'exchange';
+  if((label.includes('free') || label.includes('nocharge')) && (label.includes('delivery') || label.includes('shipping'))) return 'delivery';
+  if((label.includes('no') || label.includes('non')) && (label.includes('return') || label.includes('refund'))) return 'no-return';
+  if(label.includes('payondelivery') || label.includes('cashondelivery') || label === 'cod') return 'pay-delivery';
+  if(label.includes('secure') && (label.includes('transaction') || label.includes('payment') || label.includes('order'))) return 'secure';
+  return '';
+}
+function policyIconSvg(type){
+  const icons = {
+    exchange:'<path d="M7 7h10l-2.5-2.5M17 17H7l2.5 2.5"/><path d="M17 7l2.5 2.5L17 12M7 17l-2.5-2.5L7 12"/>',
+    delivery:'<path d="M3 6h11v10H3z"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+    'no-return':'<path d="M9 7H5v4"/><path d="M5.5 10.5A7 7 0 0 1 18 8"/><path d="M18.5 13.5A7 7 0 0 1 7 17"/><path d="M4 4l16 16"/>',
+    'pay-delivery':'<path d="M4 7h13a2 2 0 0 1 2 2v9H4z"/><path d="M4 7l2-3h11l2 3"/><circle cx="15.5" cy="13" r="2.5"/><path d="M15.5 11.5v3M14.5 12.2h1.5M14.5 13.8h1.5"/>',
+    secure:'<path d="M12 3l7 3v5c0 4.7-2.8 8.1-7 10-4.2-1.9-7-5.3-7-10V6z"/><path d="M8.5 12.5l2.2 2.2 4.8-5"/>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${icons[type] || icons.secure}</svg>`;
+}
 const bucket = () => ADMIN_CONFIG.storageBucket || 'product-images';
 const PRODUCT_SELECT = `
   id,name,slug,description,mrp,price,main_image_url,status,stock_status,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
@@ -24,7 +52,7 @@ const PRODUCT_LIST_SELECT = `
 let client;
 let categories = [];
 let subcategories = [];
-let terms = [];
+let terms = FIXED_PRODUCT_TERMS.map(term => ({...term}));
 let offers = [];
 let currentProducts = [];
 let currentProductOffset = 0;
@@ -104,7 +132,6 @@ function normalizeProduct(row){
   };
 }
 function normalizeOffer(raw){ return {id:clean(raw.id), title:clean(raw.title), mrp:price(raw.mrp) || '', price:price(raw.price) || '', quantity:clean(raw.quantity || raw.subtitle), image:clean(raw.image_url), storagePath:clean(raw.storage_path || storagePathFromUrl(raw.image_url)), link:clean(raw.link), active:raw.is_active !== false}; }
-function normalizeTerm(raw){ return {id:clean(raw.id), label:clean(raw.name), icon:clean(raw.icon || '✓'), description:clean(raw.description)}; }
 async function requireAdmin(){
   const {data:{user}} = await supabaseClient().auth.getUser();
   if(!user) throw new Error('Login required');
@@ -132,21 +159,19 @@ async function validateLogin(email, password){
 async function refreshMeta(){
   await requireAdmin();
   setStatus('Syncing...', 'loading');
-  const [catRes, subRes, termRes, offerRes] = await Promise.all([
+  const [catRes, subRes, offerRes] = await Promise.all([
     supabaseClient().from('categories').select('id,name,image_url,storage_path,description,sort_order,is_active').order('sort_order', {ascending:true}).order('name', {ascending:true}),
     supabaseClient().from('subcategories').select('id,category_id,name,sort_order,is_active').order('sort_order', {ascending:true}).order('name', {ascending:true}),
-    supabaseClient().from('terms').select('id,name,icon,description,is_active').order('name', {ascending:true}),
     supabaseClient().from('offer_slides').select('id,title,subtitle,quantity,image_url,storage_path,mrp,price,link,is_active,sort_order').order('sort_order', {ascending:true}).order('created_at', {ascending:false})
   ]);
   if(catRes.error) throw new Error('Cannot load categories: ' + catRes.error.message);
   if(subRes.error) throw new Error('Cannot load subcategories: ' + subRes.error.message);
   categories = (catRes.data || []).map(c => ({id:c.id, name:clean(c.name), image:clean(c.image_url), storagePath:clean(c.storage_path), description:clean(c.description), active:c.is_active !== false})).filter(c=>c.name);
   subcategories = (subRes.data || []).map(s => ({id:s.id, category_id:s.category_id, name:clean(s.name), active:s.is_active !== false}));
-  terms = termRes.error ? [] : (termRes.data || []).map(normalizeTerm).filter(t=>t.label);
+  terms = FIXED_PRODUCT_TERMS.map(term => ({...term}));
   offers = offerRes.error ? [] : (offerRes.data || []).map(normalizeOffer);
-  fillCategoryInputs(); renderCategories(); renderTerms(); renderTermChecks(); renderOffers();
-  const metaWarnings = [termRes.error ? 'terms' : '', offerRes.error ? 'offers' : ''].filter(Boolean);
-  setStatus(metaWarnings.length ? `Products loaded; ${metaWarnings.join(' and ')} need SQL permission` : 'Synced ✅', metaWarnings.length ? 'error' : 'ok');
+  fillCategoryInputs(); renderCategories(); renderTermChecks(); renderOffers();
+  setStatus(offerRes.error ? 'Products loaded; offers need SQL permission' : 'Synced ✅', offerRes.error ? 'error' : 'ok');
 }
 function fillCategoryInputs(){
   const activeCats = categories.filter(c=>c.active);
@@ -233,12 +258,13 @@ function renderProducts(reset = true, addedProducts = currentProducts){
 function renderCategories(){
   $('categoryManagerList').innerHTML = categories.length ? categories.map(c => `<article class="cat-group"><div class="cat-group-title">${c.image ? `<img src="${esc(c.image)}" onerror="this.style.display='none'">` : '<span></span>'}<div><b>${esc(c.name)}${!c.active?' (hidden)':''}</b>${c.description ? `<small>${esc(c.description)}</small>` : ''}</div><button type="button" data-cat-edit="${esc(c.name)}">Edit</button></div></article>`).join('') : '<div class="empty">No categories yet.</div>';
 }
-function renderTerms(){
-  $('termList').innerHTML = terms.length ? terms.map(t => `<article class="term-card"><span>${esc(t.icon || '✓')}</span><div><b>${esc(t.label)}</b><small>${esc(t.description)}</small></div><button type="button" data-term-edit="${esc(t.label)}">Edit</button></article>`).join('') : '<div class="empty">No terms yet.</div>';
-}
 function renderTermChecks(selected = []){
-  const selectedKeys = new Set((selected || []).map(x => key(x)));
-  $('productTermChecks').innerHTML = terms.map(t => `<label><input type="checkbox" value="${esc(t.label)}" ${selectedKeys.has(key(t.label)) ? 'checked' : ''}> <span>${esc(t.icon || '✓')}</span> ${esc(t.label)}</label>`).join('') || '<small>No terms created yet.</small>';
+  const selectedKeys = new Set((selected || []).map(policyKeyFromLabel).filter(Boolean));
+  $('productTermChecks').innerHTML = terms.map(term => `<label class="policy-check">
+    <input type="checkbox" value="${esc(term.label)}" ${selectedKeys.has(term.key) ? 'checked' : ''}>
+    <span class="policy-check-icon">${policyIconSvg(term.key)}</span>
+    <span class="policy-check-copy"><b>${esc(term.label)}</b><small>${esc(term.description)}</small></span>
+  </label>`).join('');
 }
 function selectedProductTerms(){ return Array.from($('productTermChecks').querySelectorAll('input:checked')).map(x=>x.value); }
 function renderOffers(){
@@ -517,10 +543,6 @@ async function saveOffer(event){
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 async function deleteOffer(){ const id=clean($('offerId').value); if(!id) return; if(!confirm('Delete this offer slide?')) return; try{ showBusy('Deleting offer...'); const o=offers.find(x=>x.id===id); const {error}=await supabaseClient().from('offer_slides').delete().eq('id', id); if(error) throw error; await removeStorage([o?.storagePath || storagePathFromUrl(o?.image)]); await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
-function resetTerm(){ $('termForm').reset(); $('termOldLabel').value=''; $('deleteTermBtn').style.display='none'; }
-function openTerm(label){ const t=terms.find(x=>key(x.label)===key(label)); if(!t) return; $('termOldLabel').value=t.label; $('termLabel').value=t.label; $('termIcon').value=t.icon; $('termDescription').value=t.description; $('deleteTermBtn').style.display='inline-flex'; switchView('terms'); }
-async function saveTerm(event){ event.preventDefault(); try{ const oldLabel=clean($('termOldLabel').value), label=clean($('termLabel').value); if(!label) throw new Error('Enter term label'); showBusy('Saving term...'); const old=terms.find(t=>key(t.label)===key(oldLabel)); const row={name:label, icon:clean($('termIcon').value)||'✓', description:clean($('termDescription').value), is_active:true}; if(old){ const {error}=await supabaseClient().from('terms').update(row).eq('id', old.id); if(error) throw error; } else { const {error}=await supabaseClient().from('terms').insert(row); if(error) throw error; } await refreshMeta(); resetTerm(); hideBusy(); setStatus('Term saved ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
-async function deleteTerm(){ const label=clean($('termOldLabel').value); if(!label) return; if(!confirm('Delete this term? Existing products using this text will still display it as text.')) return; try{ showBusy('Deleting term...'); const t=terms.find(x=>key(x.label)===key(label)); if(t){ const {error}=await supabaseClient().from('terms').delete().eq('id', t.id); if(error) throw error; } await refreshMeta(); resetTerm(); hideBusy(); setStatus('Term deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
 async function lockAdmin(){ try{ await supabaseClient().auth.signOut(); }catch(e){} $('adminShell').classList.add('is-locked'); $('loginScreen').style.display='grid'; if($('adminPasswordInput')) $('adminPasswordInput').value=''; setStatus('Login required'); }
 function bindEvents(){
   $('menuToggle').addEventListener('click', () => { const open = $('adminMenu').classList.toggle('open'); $('menuToggle').setAttribute('aria-expanded', String(open)); });
@@ -544,12 +566,10 @@ function bindEvents(){
   $('offerPhotoPicker').addEventListener('click', () => $('offerImageInput').click());
   $('offerImageInput').addEventListener('change', () => { currentOfferFile = $('offerImageInput').files[0] || null; if(currentOfferFile) $('offerPreview').src = URL.createObjectURL(currentOfferFile); });
   $('offerForm').addEventListener('submit', saveOffer); $('cancelOfferBtn').addEventListener('click', resetOffer); $('deleteOfferBtn').addEventListener('click', deleteOffer);
-  $('termForm').addEventListener('submit', saveTerm); $('resetTermBtn').addEventListener('click', resetTerm); $('deleteTermBtn').addEventListener('click', deleteTerm);
   document.addEventListener('click', e => {
     const edit = e.target.closest('[data-edit]'); if(edit) openProduct(edit.dataset.edit).catch(err=>setStatus(err.message,'error'));
     const cat = e.target.closest('[data-cat-edit]'); if(cat) openCategory(cat.dataset.catEdit);
     const offer = e.target.closest('[data-offer-edit]'); if(offer) openOffer(offer.dataset.offerEdit);
-    const term = e.target.closest('[data-term-edit]'); if(term) openTerm(term.dataset.termEdit);
     const re = e.target.closest('[data-remove-existing-image]'); if(re){ currentImages.splice(Number(re.dataset.removeExistingImage),1); renderImagePreviews(); }
     const rn = e.target.closest('[data-remove-new-image]'); if(rn){ newImageFiles.splice(Number(rn.dataset.removeNewImage),1); renderImagePreviews(); }
     const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!$('variantList').querySelector('.variant-row')) renderVariantRows([]); else renumberVariantRows(); }

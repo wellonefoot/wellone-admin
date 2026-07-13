@@ -187,3 +187,21 @@ html.pwa-launching .app-launch-splash.is-leaving{opacity:0;visibility:hidden;}
 @media(max-width:640px){.variant-row .variant-stock-price-row{grid-template-columns:1fr}}
 
 .variant-help{display:block;margin-top:7px;color:#667085;font-size:12px;font-weight:700;line-height:1.45}
+
+
+/* v53 fixed product policies: no emoji or term-creation UI */
+.term-picker{padding:16px!important;background:linear-gradient(135deg,#fbfff3,#fff)!important}
+.term-picker>b{display:block;font-size:16px;margin-bottom:4px;color:#1b2230}
+.term-picker>b:after{content:' · select the policies that apply to this product';font-size:12px;font-weight:700;color:#667085}
+#productTermChecks.check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+#productTermChecks .policy-check{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr);align-items:center;gap:10px;padding:12px;border:1px solid #dfe8c8;border-radius:18px;background:#fff;cursor:pointer;min-width:0;transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease!important}
+#productTermChecks .policy-check:hover{transform:translateY(-1px);box-shadow:0 10px 24px rgba(70,95,20,.08)}
+#productTermChecks .policy-check input{position:absolute;opacity:0;pointer-events:none}
+#productTermChecks .policy-check:has(input:checked){background:linear-gradient(135deg,#f4fbdc,#fbfff1);border-color:#abcf3b;box-shadow:0 0 0 3px rgba(171,207,59,.12)}
+.policy-check-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:#f1f8d8;color:#6f8f0d;border:1px solid #dbeaa9}
+.policy-check:has(input:checked) .policy-check-icon{background:#abcf3b;color:#172000;border-color:#97bb26}
+.policy-check-icon svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.policy-check-copy{min-width:0;display:grid;gap:3px}
+.policy-check-copy b{font-size:13px;color:#1b2230;line-height:1.25}
+.policy-check-copy small{font-size:11px;color:#667085;line-height:1.35;font-weight:650}
+@media(max-width:720px){#productTermChecks.check-grid{grid-template-columns:1fr}.term-picker>b:after{display:block;margin-top:4px}}

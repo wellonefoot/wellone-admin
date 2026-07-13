@@ -14,7 +14,7 @@
       }catch(_error){}
     })();
   </script>
-  <link rel="stylesheet" href="css/admin.css?v=52">
+  <link rel="stylesheet" href="css/admin.css?v=53">
   <link rel="icon" href="./assets/favicon/favicon.ico" type="image/x-icon">
   <link rel="apple-touch-icon" href="./assets/favicon/apple-icon-180x180.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -48,7 +48,6 @@
         <button data-view="add" type="button">Add Product</button>
         <button data-view="categories" type="button">Categories</button>
         <button data-view="offers" type="button">Offer Slides</button>
-        <button data-view="terms" type="button">Terms</button>
         <button id="logoutBtn" type="button">Logout</button>
       </nav>
     </header>
@@ -101,7 +100,7 @@
                 <label>Colours (same price/images)<input id="colors" placeholder="Black, White, Default"></label>
               </div>
               <label>Description<textarea id="description" rows="3" placeholder="Short product detail"></textarea></label>
-              <div class="term-picker"><b>Terms</b><div id="productTermChecks" class="check-grid"></div></div>
+              <div class="term-picker"><b>Product policies</b><div id="productTermChecks" class="check-grid"></div></div>
               <div class="variant-box">
                 <div class="variant-head"><b>Price, image & stock variants</b><button id="addVariantBtn" type="button">+ Add variant</button></div>
                 <small class="variant-help">Choose Size / option for 9, 500ml, Large, etc. Choose Colour for Gold, Silver, Black, etc.</small>
@@ -162,24 +161,13 @@
         </form>
         <div id="offerList" class="product-list"></div>
       </section>
-
-      <section id="viewTerms" class="view-panel clean-card">
-        <div class="panel-head"><div><p class="tag">terms</p><h1>Terms</h1></div></div>
-        <form id="termForm" class="term-form">
-          <input id="termOldLabel" type="hidden">
-          <div class="field-row"><label>Term label<input id="termLabel" placeholder="Non refundable"></label><label>Icon / symbol<input id="termIcon" placeholder="🚫"></label></div>
-          <label>Description<input id="termDescription" placeholder="This item cannot be refunded after purchase"></label>
-          <div class="save-row"><button id="resetTermBtn" class="ghost-btn" type="button">Reset</button><button id="deleteTermBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Term</button></div>
-        </form>
-        <div id="termList" class="term-list"></div>
-      </section>
     </main>
   </div>
 
   <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/admin-config.js?v=50"></script>
-  <script src="js/admin.js?v=52"></script>
+  <script src="js/admin.js?v=53"></script>
   <script src="js/pwa-install.js?v=50"></script>
 </body>
 </html>
