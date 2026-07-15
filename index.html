@@ -14,7 +14,7 @@
       }catch(_error){}
     })();
   </script>
-  <link rel="stylesheet" href="css/admin.css?v=53">
+  <link rel="stylesheet" href="css/admin.css?v=55">
   <link rel="icon" href="./assets/favicon/favicon.ico" type="image/x-icon">
   <link rel="apple-touch-icon" href="./assets/favicon/apple-icon-180x180.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -82,11 +82,25 @@
               <button id="clearAllImagesBtn" class="ghost-btn" type="button">Clear images</button>
             </div>
             <div class="form-fields">
-              <div class="field-row">
-                <label>Category<input id="category" list="categoryOptions" placeholder="Category" required></label>
-                <label>Subcategory / filter<input id="subcategory" placeholder="Subcategory"></label>
+              <div class="field-row category-subcategory-row">
+                <label>Category
+                  <div class="category-select-wrap">
+                    <select id="category" required aria-label="Select product category">
+                      <option value="">Select category</option>
+                    </select>
+                    <span class="category-select-arrow" aria-hidden="true"></span>
+                  </div>
+                </label>
+                <label>Subcategory / filter
+                  <div id="subcategoryCombobox" class="subcategory-combobox">
+                    <input id="subcategory" type="text" autocomplete="off" placeholder="Select category first" role="combobox" aria-autocomplete="list" aria-controls="subcategoryOptions" aria-expanded="false" disabled>
+                    <button id="subcategoryToggle" class="subcategory-toggle" type="button" aria-label="Show subcategories" aria-controls="subcategoryOptions" aria-expanded="false" disabled></button>
+                    <div id="subcategoryOptions" class="subcategory-options" role="listbox" hidden></div>
+                  </div>
+                  <small id="subcategoryHint" class="subcategory-hint">Select a category first.</small>
+                </label>
               </div>
-              <datalist id="categoryOptions"></datalist><small id="categoryHint" class="hint hide"></small>
+              <small id="categoryHint" class="hint hide"></small>
               
               <label>Product name<input id="productName" placeholder="Name" required></label>
               <div class="field-row three price-availability-row">
@@ -167,7 +181,7 @@
   <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/admin-config.js?v=50"></script>
-  <script src="js/admin.js?v=53"></script>
+  <script src="js/admin.js?v=55"></script>
   <script src="js/pwa-install.js?v=50"></script>
 </body>
 </html>
