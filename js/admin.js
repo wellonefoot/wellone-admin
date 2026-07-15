@@ -175,15 +175,79 @@ async function refreshMeta(){
 }
 function fillCategoryInputs(){
   const activeCats = categories.filter(c=>c.active);
-  const opts = activeCats.map(c => `<option value="${esc(c.name)}"></option>`).join('');
-  $('categoryOptions').innerHTML = opts;
-  $('categoryManagerOptions').innerHTML = opts;
+  const managerOptions = activeCats.map(c => `<option value="${esc(c.name)}"></option>`).join('');
+  $('categoryManagerOptions').innerHTML = managerOptions;
   const hint = $('categoryHint');
-  if(hint) hint.textContent = activeCats.length ? 'Select existing or type a new category.' : 'Create your first category.';
+  if(hint) hint.textContent = activeCats.length ? 'Choose an existing category.' : 'Create your first category in Categories.';
+
+  const productCategory = $('category');
+  const oldProductCategory = clean(productCategory?.value);
+  if(productCategory){
+    productCategory.innerHTML = '<option value="">Select category</option>' + activeCats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    if(oldProductCategory && activeCats.some(c=>String(c.id)===String(oldProductCategory))) productCategory.value = oldProductCategory;
+  }
+
   const select = $('productCategoryFilter');
   const old = select.value;
   select.innerHTML = '<option value="">All categories</option>' + activeCats.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
-  if(old && (old === '' || activeCats.some(c=>c.name===old))) select.value = old;
+  if(old && activeCats.some(c=>c.name===old)) select.value = old;
+  renderProductSubcategoryOptions(false);
+}
+function selectedProductCategory(){
+  const categoryId = clean($('category')?.value);
+  return categories.find(c => String(c.id) === String(categoryId)) || null;
+}
+function productSubcategories(categoryId){
+  return subcategories
+    .filter(s => s.active && String(s.category_id) === String(categoryId))
+    .sort((a,b) => a.name.localeCompare(b.name, undefined, {sensitivity:'base'}));
+}
+function setSubcategoryDropdown(open){
+  const box = $('subcategoryCombobox'), input = $('subcategory'), toggle = $('subcategoryToggle'), options = $('subcategoryOptions');
+  if(!box || !input || !toggle || !options) return;
+  const canOpen = Boolean(selectedProductCategory()) && !input.disabled;
+  const shouldOpen = Boolean(open && canOpen);
+  box.classList.toggle('open', shouldOpen);
+  input.setAttribute('aria-expanded', String(shouldOpen));
+  toggle.setAttribute('aria-expanded', String(shouldOpen));
+  options.hidden = !shouldOpen;
+}
+function renderProductSubcategoryOptions(open = false){
+  const input = $('subcategory'), toggle = $('subcategoryToggle'), options = $('subcategoryOptions'), hint = $('subcategoryHint');
+  if(!input || !toggle || !options || !hint) return;
+  const category = selectedProductCategory();
+  if(!category){
+    input.disabled = true;
+    toggle.disabled = true;
+    input.placeholder = 'Select category first';
+    hint.textContent = 'Select a category first.';
+    options.innerHTML = '';
+    setSubcategoryDropdown(false);
+    return;
+  }
+
+  input.disabled = false;
+  toggle.disabled = false;
+  input.placeholder = 'Select subcategory';
+  const value = clean(input.value);
+  const all = productSubcategories(category.id);
+  const visible = value ? all.filter(s => key(s.name).includes(key(value))) : all;
+  const exact = value ? all.find(s => key(s.name) === key(value)) : null;
+  options.innerHTML = visible.length
+    ? visible.map(s => `<button type="button" class="subcategory-option${exact?.id === s.id ? ' selected' : ''}" role="option" aria-selected="${exact?.id === s.id ? 'true' : 'false'}" data-subcategory-option="${esc(s.name)}"><span>${esc(s.name)}</span><small>Existing</small></button>`).join('')
+    : `<div class="subcategory-empty">${value ? `<b>Create “${esc(value)}”</b><small>This new subcategory will be added only under ${esc(category.name)}.</small>` : `<b>No subcategories yet</b><small>Type a name to create one under ${esc(category.name)}.</small>`}</div>`;
+  hint.textContent = exact
+    ? `Existing subcategory selected under ${category.name}.`
+    : value
+      ? `“${value}” will be created under ${category.name} only when you save.`
+      : all.length
+        ? `${all.length} subcategor${all.length === 1 ? 'y' : 'ies'} available under ${category.name}.`
+        : `No existing subcategories under ${category.name}. Type a new one if needed.`;
+  setSubcategoryDropdown(open);
+}
+function chooseProductSubcategory(name){
+  $('subcategory').value = clean(name);
+  renderProductSubcategoryOptions(false);
 }
 async function ensureCategory(name){
   const existing = categories.find(c => key(c.name) === key(name));
@@ -284,7 +348,7 @@ function renderImagePreviews(){
 }
 function clearProductImages(){ currentImages = []; newImageFiles = []; $('photoInput').value = ''; $('photoCameraInput').value = ''; renderImagePreviews(); }
 function resetProduct(){
-  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]);
+  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false);
   $('formTitle').textContent = 'Add product'; $('saveBtn').textContent = 'Save Product'; $('deleteBtn').style.display = 'none'; $('cancelEditBtn').classList.add('hide'); switchView('add');
 }
 function renderVariantRows(list = []){
@@ -434,7 +498,7 @@ async function openProduct(id){
   if(error) throw error;
   const p = normalizeProduct(data);
   if(!p || !p.id) return;
-  $('editId').value = p.id; $('category').value = p.category; $('subcategory').value = p.subcategory; $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock');
+  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock');
   currentImages = p.images && p.images.length ? p.images : (p.image ? [p.image] : []); newImageFiles = []; renderImagePreviews(); renderTermChecks(p.terms);
   renderVariantRows(p.variants || []);
   $('formTitle').textContent = 'Edit product'; $('saveBtn').textContent = 'Update Product'; $('deleteBtn').style.display = 'inline-flex'; $('cancelEditBtn').classList.remove('hide'); switchView('add');
@@ -446,13 +510,13 @@ async function saveProduct(event){
   try{
     await requireAdmin();
     await ensureVariantAvailabilityReady();
-    const id = clean($('editId').value), categoryName = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
-    if(!categoryName || !name || !pr) throw new Error('Fill category, name and final price');
+    const id = clean($('editId').value), categoryId = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
+    const category = categories.find(c => String(c.id) === String(categoryId) && c.active);
+    if(!category || !name || !pr) throw new Error('Select category, enter product name and final price');
     const variantDrafts = collectVariantRows();
     validateVariantRows(variantDrafts);
     if(!id && !currentImages.length && !newImageFiles.length && !variantDrafts.some(v=>v.files.length || v.existingImages.length)) throw new Error('Choose at least one product image');
     showBusy(id ? 'Updating product...' : 'Saving product...'); setStatus(id ? 'Updating product...' : 'Saving product...', 'loading');
-    const category = await ensureCategory(categoryName);
     const sub = await ensureSubcategory(category.id, clean($('subcategory').value));
     const newUploads = await uploadFiles(newImageFiles, 'products');
     newlyUploadedPaths.push(...newUploads.map(x=>x.path));
@@ -552,6 +616,14 @@ function bindEvents(){
   $('newProductBtn').addEventListener('click', resetProduct);
   $('reloadProductsBtn').addEventListener('click', () => loadProducts(true).catch(err=>setStatus(err.message,'error')));
   $('productCategoryFilter').addEventListener('change', () => loadProducts(true).catch(err=>setStatus(err.message,'error')));
+  $('category').addEventListener('change', () => { $('subcategory').value = ''; renderProductSubcategoryOptions(false); });
+  $('subcategory').addEventListener('focus', () => renderProductSubcategoryOptions(true));
+  $('subcategory').addEventListener('input', () => renderProductSubcategoryOptions(true));
+  $('subcategoryToggle').addEventListener('click', () => {
+    const isOpen = $('subcategoryCombobox').classList.contains('open');
+    renderProductSubcategoryOptions(!isOpen);
+    if(!isOpen) $('subcategory').focus();
+  });
   $('searchProducts').addEventListener('input', () => { clearTimeout(window.__adminSearchTimer); window.__adminSearchTimer = setTimeout(() => loadProducts(true).catch(err=>setStatus(err.message,'error')), 350); });
   $('searchProducts').addEventListener('keydown', e => { if(e.key==='Enter') loadProducts(true).catch(err=>setStatus(err.message,'error')); });
   $('loadMoreProductsBtn').addEventListener('click', () => loadProducts(false).catch(err=>setStatus(err.message,'error')));
@@ -567,6 +639,9 @@ function bindEvents(){
   $('offerImageInput').addEventListener('change', () => { currentOfferFile = $('offerImageInput').files[0] || null; if(currentOfferFile) $('offerPreview').src = URL.createObjectURL(currentOfferFile); });
   $('offerForm').addEventListener('submit', saveOffer); $('cancelOfferBtn').addEventListener('click', resetOffer); $('deleteOfferBtn').addEventListener('click', deleteOffer);
   document.addEventListener('click', e => {
+    const subcategoryOption = e.target.closest('[data-subcategory-option]');
+    if(subcategoryOption){ chooseProductSubcategory(subcategoryOption.dataset.subcategoryOption); return; }
+    if(!e.target.closest('#subcategoryCombobox')) setSubcategoryDropdown(false);
     const edit = e.target.closest('[data-edit]'); if(edit) openProduct(edit.dataset.edit).catch(err=>setStatus(err.message,'error'));
     const cat = e.target.closest('[data-cat-edit]'); if(cat) openCategory(cat.dataset.catEdit);
     const offer = e.target.closest('[data-offer-edit]'); if(offer) openOffer(offer.dataset.offerEdit);
