@@ -1,8 +1,8 @@
-const CACHE_VERSION = 'wellone-admin-v52-flexible-variants';
+const CACHE_VERSION = 'wellone-admin-v55-dropdown-polish';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const SHELL_ASSETS = [
-  './', './index.html', './css/admin.css?v=52', './js/admin-config.js?v=50', './js/admin.js?v=52', './js/pwa-install.js?v=50',
+  './', './index.html', './css/admin.css?v=55', './js/admin-config.js?v=50', './js/admin.js?v=55', './js/pwa-install.js?v=50',
   './manifest.webmanifest', './assets/logo.png?v=50', './assets/favicon/favicon.ico', './assets/favicon/wellone-icon-192-v46.png', './assets/favicon/wellone-icon-512-v46.png', './assets/favicon/wellone-icon-192-maskable-v46.png', './assets/favicon/wellone-icon-512-maskable-v46.png'
 ];
 self.addEventListener('install', event => {
