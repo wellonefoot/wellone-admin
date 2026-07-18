@@ -18,19 +18,19 @@
   ],
   "icons": [
     {
-      "src": "assets/favicon/favicon-16x16.png?v=71",
+      "src": "assets/favicon/favicon-16x16.png?v=72",
       "sizes": "16x16",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "assets/favicon/favicon-32x32.png?v=71",
+      "src": "assets/favicon/favicon-32x32.png?v=72",
       "sizes": "32x32",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "assets/favicon/apple-icon-180x180.png?v=71",
+      "src": "assets/favicon/apple-icon-180x180.png?v=72",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"

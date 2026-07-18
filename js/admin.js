@@ -65,6 +65,8 @@ let currentOfferImageUrl = '';
 let currentOfferStoragePath = '';
 let currentOfferFile = null;
 let currentCategoryFile = null;
+let editingProductId = '';
+let productSaveInProgress = false;
 const STORE_CHANNEL_NAME = 'wellone-store-events-v1';
 const STORE_EVENT_NAME = 'store-change';
 let customerUpdateChannel = null;
@@ -430,6 +432,8 @@ function renderImagePreviews(){
 }
 function clearProductImages(){ currentImages = []; newImageFiles = []; $('photoInput').value = ''; $('photoCameraInput').value = ''; renderImagePreviews(); }
 function resetProduct(){
+  editingProductId = '';
+  productSaveInProgress = false;
   $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false);
   $('formTitle').textContent = 'Add product'; $('saveBtn').textContent = 'Save Product'; $('deleteBtn').style.display = 'none'; $('cancelEditBtn').classList.add('hide'); switchView('add');
 }
@@ -580,6 +584,7 @@ async function openProduct(id){
   if(error) throw error;
   const p = normalizeProduct(data);
   if(!p || !p.id) return;
+  editingProductId = p.id;
   $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock');
   currentImages = p.images && p.images.length ? p.images : (p.image ? [p.image] : []); newImageFiles = []; renderImagePreviews(); renderTermChecks(p.terms);
   renderVariantRows(p.variants || []);
@@ -587,12 +592,18 @@ async function openProduct(id){
 }
 async function saveProduct(event){
   event.preventDefault();
+  if(productSaveInProgress) return;
+  productSaveInProgress = true;
+  $('saveBtn').disabled = true;
   const newlyUploadedPaths = [];
   let databaseWriteStarted = false;
   try{
     await requireAdmin();
     await ensureVariantAvailabilityReady();
-    const id = clean($('editId').value), categoryId = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
+    const hiddenId = clean($('editId').value);
+    const id = clean(editingProductId || hiddenId);
+    if(editingProductId && hiddenId && editingProductId !== hiddenId) throw new Error('Product edit state changed. Reopen the product and try again.');
+    const categoryId = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
     const category = categories.find(c => String(c.id) === String(categoryId) && c.active);
     if(!category || !name || !pr) throw new Error('Select category, enter product name and final price');
     const variantDrafts = collectVariantRows();
@@ -616,7 +627,8 @@ async function saveProduct(event){
       oldImagePaths = (oldImgs || []).map(x=>x.storage_path || storagePathFromUrl(x.image_url)).filter(Boolean);
       const {data:oldVars,error:oldVarsError}=await supabaseClient().from('product_variants').select('storage_paths,image_url,image_urls').eq('product_id', id); if(oldVarsError) throw oldVarsError;
       oldVariantPaths = (oldVars || []).flatMap(v => splitList(v.storage_paths || []).concat(splitList(v.image_urls || v.image_url || []).map(storagePathFromUrl))).filter(Boolean);
-      const {error}=await supabaseClient().from('products').update(row).eq('id', id); if(error) throw error;
+      const {data:updated,error}=await supabaseClient().from('products').update(row).eq('id', id).select('id').single(); if(error) throw error;
+      if(!updated || updated.id !== id) throw new Error('Product update failed. No new product was created.');
     }else{
       row.created_at = new Date().toISOString();
       const {data,error}=await supabaseClient().from('products').insert(row).select('id').single(); if(error) throw error; productId = data.id;
@@ -633,11 +645,14 @@ async function saveProduct(event){
     }
     const keepPaths = new Set(allPaths.concat(variantRows.flatMap(v=>v.storagePaths)));
     await removeStorage(oldImagePaths.concat(oldVariantPaths).filter(p => !keepPaths.has(p)));
-    await refreshMeta(); await loadProducts(true); resetProduct(); hideBusy(); setStatus(id ? 'Product updated ✅' : 'Product saved ✅', 'ok');
     await notifyCustomerStoreChanged(['products','product_images','product_variants', ...(!id ? ['categories'] : []), ...(sub && sub.__created ? ['subcategories'] : [])], id ? 'product-update' : 'product-insert', {productId, categoryId:category.id, subcategoryCreated:Boolean(sub && sub.__created)});
+    await refreshMeta(); await loadProducts(true); resetProduct(); hideBusy(); setStatus(id ? 'Product updated ✅' : 'Product saved ✅', 'ok');
   }catch(err){
     if(!databaseWriteStarted && newlyUploadedPaths.length) await removeStorage(newlyUploadedPaths).catch(()=>{});
     hideBusy(); setStatus(err.message, 'error');
+  }finally{
+    productSaveInProgress = false;
+    $('saveBtn').disabled = false;
   }
 }
 async function deleteProduct(){
@@ -650,8 +665,8 @@ async function deleteProduct(){
     const paths = (imgs || []).map(x=>x.storage_path || storagePathFromUrl(x.image_url)).concat((vars || []).flatMap(v => splitList(v.storage_paths || []).concat(splitList(v.image_urls || v.image_url || []).map(storagePathFromUrl)))).filter(Boolean);
     const {error}=await supabaseClient().from('products').delete().eq('id', id); if(error) throw error;
     await removeStorage(paths);
-    await refreshMeta(); await loadProducts(true); resetProduct(); hideBusy(); setStatus('Product deleted ✅','ok');
     await notifyCustomerStoreChanged(['products','product_images','product_variants','categories'], 'product-delete', {productId:id});
+    await refreshMeta(); await loadProducts(true); resetProduct(); hideBusy(); setStatus('Product deleted ✅','ok');
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 function resetCategory(){ $('categoryForm').reset(); $('categoryOldName').value=''; $('categoryDescriptionInput').value=''; currentCategoryImageUrl=''; currentCategoryStoragePath=''; currentCategoryFile=null; $('categoryImageInput').value=''; $('categoryCameraInput').value=''; $('categoryPreview').removeAttribute('src'); $('deleteCategoryBtn').style.display='none'; $('saveCategoryBtn').textContent='Save Category'; }
@@ -668,11 +683,11 @@ async function saveCategory(event){
     if(old){ const {error}=await supabaseClient().from('categories').update({name, slug:slugify(name), description, image_url:imageUrl, storage_path:storagePath, is_active:true}).eq('id', old.id); if(error) throw error; }
     else { const {error}=await supabaseClient().from('categories').insert({name, slug:slugify(name), description, image_url:imageUrl, storage_path:storagePath, is_active:true}); if(error) throw error; }
     if(currentCategoryFile && oldCategoryPath && oldCategoryPath !== storagePath){ await removeStorage([oldCategoryPath]); }
-    await refreshMeta(); resetCategory(); hideBusy(); setStatus('Category saved ✅','ok');
     await notifyCustomerStoreChanged(['categories'], old ? 'category-update' : 'category-insert', {oldName, name});
+    await refreshMeta(); resetCategory(); hideBusy(); setStatus('Category saved ✅','ok');
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
-async function deleteCategory(){ const name=clean($('categoryOldName').value); if(!name) return; if(!confirm(`Delete category ${name}? Products under it will lose category.`)) return; try{ showBusy('Deleting category...'); const c=categories.find(x=>key(x.name)===key(name)); if(c){ const {error}=await supabaseClient().from('categories').delete().eq('id', c.id); if(error) throw error; await removeStorage([c.storagePath || storagePathFromUrl(c.image)]); } await refreshMeta(); resetCategory(); hideBusy(); setStatus('Category deleted ✅','ok'); await notifyCustomerStoreChanged(['categories','subcategories','products'], 'category-delete', {name}); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
+async function deleteCategory(){ const name=clean($('categoryOldName').value); if(!name) return; if(!confirm(`Delete category ${name}? Products under it will lose category.`)) return; try{ showBusy('Deleting category...'); const c=categories.find(x=>key(x.name)===key(name)); if(c){ const {error}=await supabaseClient().from('categories').delete().eq('id', c.id); if(error) throw error; await removeStorage([c.storagePath || storagePathFromUrl(c.image)]); } await notifyCustomerStoreChanged(['categories','subcategories','products'], 'category-delete', {name}); await refreshMeta(); resetCategory(); hideBusy(); setStatus('Category deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
 function resetOffer(){ $('offerForm').reset(); $('offerId').value=''; currentOfferImageUrl=''; currentOfferStoragePath=''; currentOfferFile=null; $('offerPreview').removeAttribute('src'); $('offerActive').checked=true; $('deleteOfferBtn').style.display='none'; }
 function openOffer(id){ const o = offers.find(x=>x.id===id); if(!o) return; $('offerId').value=o.id; $('offerTitle').value=o.title || ''; $('offerMrp').value=o.mrp || ''; $('offerPrice').value=o.price || ''; $('offerQuantity').value=o.quantity || ''; $('offerLink').value=o.link || ''; $('offerActive').checked=o.active; currentOfferImageUrl=o.image; currentOfferStoragePath=o.storagePath || storagePathFromUrl(o.image); currentOfferFile=null; if(o.image) $('offerPreview').src=o.image; $('deleteOfferBtn').style.display='inline-flex'; switchView('offers'); }
 async function saveOffer(event){
@@ -688,11 +703,11 @@ async function saveOffer(event){
     if(id){ const {error}=await supabaseClient().from('offer_slides').update(row).eq('id', id); if(error) throw error; }
     else { const {error}=await supabaseClient().from('offer_slides').insert(row); if(error) throw error; }
     if(currentOfferFile && oldOfferPath && oldOfferPath !== storagePath){ await removeStorage([oldOfferPath]); }
-    await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer saved ✅','ok');
     await notifyCustomerStoreChanged(['offer_slides'], id ? 'offer-update' : 'offer-insert', {offerId:id || ''});
+    await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer saved ✅','ok');
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
-async function deleteOffer(){ const id=clean($('offerId').value); if(!id) return; if(!confirm('Delete this offer slide?')) return; try{ showBusy('Deleting offer...'); const o=offers.find(x=>x.id===id); const {error}=await supabaseClient().from('offer_slides').delete().eq('id', id); if(error) throw error; await removeStorage([o?.storagePath || storagePathFromUrl(o?.image)]); await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer deleted ✅','ok'); await notifyCustomerStoreChanged(['offer_slides'], 'offer-delete', {offerId:id}); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
+async function deleteOffer(){ const id=clean($('offerId').value); if(!id) return; if(!confirm('Delete this offer slide?')) return; try{ showBusy('Deleting offer...'); const o=offers.find(x=>x.id===id); const {error}=await supabaseClient().from('offer_slides').delete().eq('id', id); if(error) throw error; await removeStorage([o?.storagePath || storagePathFromUrl(o?.image)]); await notifyCustomerStoreChanged(['offer_slides'], 'offer-delete', {offerId:id}); await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
 async function lockAdmin(){ resetCustomerUpdateChannel(); try{ await supabaseClient().auth.signOut(); }catch(e){} $('adminShell').classList.add('is-locked'); $('loginScreen').style.display='grid'; if($('adminPasswordInput')) $('adminPasswordInput').value=''; setStatus('Login required'); }
 function bindEvents(){
   $('menuToggle').addEventListener('click', () => { const open = $('adminMenu').classList.toggle('open'); $('menuToggle').setAttribute('aria-expanded', String(open)); });
