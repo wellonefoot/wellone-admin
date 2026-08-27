@@ -37,14 +37,14 @@ function policyIconSvg(type){
 }
 const bucket = () => ADMIN_CONFIG.storageBucket || 'product-images';
 const PRODUCT_SELECT = `
-  id,name,slug,description,mrp,price,main_image_url,status,stock_status,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
+  id,name,slug,description,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
   categories(id,name,image_url,storage_path,description),
   subcategories(id,name),
   product_images(id,image_url,storage_path,sort_order),
   product_variants(id,label,mrp,price,image_url,image_urls,storage_paths,terms,unit,stock,stock_status,sort_order)
 `;
 const PRODUCT_LIST_SELECT = `
-  id,name,slug,description,mrp,price,main_image_url,status,stock_status,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
+  id,name,slug,description,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
   categories(id,name,image_url,storage_path,description),
   subcategories(id,name)
 `;
@@ -54,6 +54,7 @@ let categories = [];
 let subcategories = [];
 let terms = FIXED_PRODUCT_TERMS.map(term => ({...term}));
 let offers = [];
+let offerItems = [];
 let currentProducts = [];
 let currentProductOffset = 0;
 let nextProductOffset = null;
@@ -67,6 +68,9 @@ let currentOfferFile = null;
 let currentCategoryFile = null;
 let editingProductId = '';
 let productSaveInProgress = false;
+let barcodeScanStream = null;
+let barcodeScanFrame = null;
+let barcodeScanMode = 'lookup';
 const STORE_CHANNEL_NAME = 'wellone-store-events-v1';
 const STORE_EVENT_NAME = 'store-change';
 let customerUpdateChannel = null;
@@ -206,15 +210,16 @@ function normalizeProduct(row){
     id: clean(row.id), categoryId: row.category_id || row.categories?.id || '', category: clean(row.categories?.name || row.category || ''), subcategoryId: row.subcategory_id || row.subcategories?.id || '', subcategory: clean(row.subcategories?.name || row.subcategory || ''),
     name: clean(row.name), price: price(row.price) || '', mrp: price(row.mrp) || '', image: clean(row.main_image_url || imgs[0]?.image_url || ''),
     images: imgs.map(x=>x.image_url).filter(Boolean), imagePaths: imgs.map(x=>x.storage_path || storagePathFromUrl(x.image_url)).filter(Boolean),
-    sizes: clean(row.sizes || 'Standard'), colors: clean(row.colors || 'Default'), optionTitle: clean(row.option_title || ''), description: clean(row.description || ''), terms: splitList(row.terms || []), status: clean(row.status || 'active'), stockStatus: clean(row.stock_status || 'in_stock'),
+    sizes: clean(row.sizes || 'Standard'), colors: clean(row.colors || 'Default'), optionTitle: clean(row.option_title || ''), description: clean(row.description || ''), terms: splitList(row.terms || []), status: clean(row.status || 'active'), stockStatus: clean(row.stock_status || 'in_stock'), stockQuantity: Math.max(0, Number(row.stock_quantity || 0) || 0), trackInventory: row.track_inventory === true, barcode: clean(row.barcode || ''), barcodeEnabled: row.barcode_enabled === true,
     variants: variants.map(v => {
       const urls = splitList(v.image_urls || v.image_url || []);
       const paths = splitList(v.storage_paths || []);
-      return {id:v.id, label:clean(v.label || ''), mrp:price(v.mrp) || '', price:price(v.price) || '', unit:clean(v.unit || ''), images:urls, storagePaths:paths.length ? paths : urls.map(storagePathFromUrl).filter(Boolean), terms:splitList(v.terms || []), stockStatus:clean(v.stock_status || 'in_stock')};
+      return {id:v.id, label:clean(v.label || ''), mrp:price(v.mrp) || '', price:price(v.price) || '', unit:clean(v.unit || ''), images:urls, storagePaths:paths.length ? paths : urls.map(storagePathFromUrl).filter(Boolean), terms:splitList(v.terms || []), stockQuantity:Math.max(0, Number(v.stock || 0) || 0), stockStatus:clean(v.stock_status || 'in_stock')};
     })
   };
 }
 function normalizeOffer(raw){ return {id:clean(raw.id), title:clean(raw.title), mrp:price(raw.mrp) || '', price:price(raw.price) || '', quantity:clean(raw.quantity || raw.subtitle), image:clean(raw.image_url), storagePath:clean(raw.storage_path || storagePathFromUrl(raw.image_url)), link:clean(raw.link), active:raw.is_active !== false}; }
+function normalizeOfferItem(raw){ return {id:clean(raw.id), title:clean(raw.title), link:clean(raw.item_link), offerPrice:price(raw.offer_price) || '', discount:price(raw.discount_percentage) || '', validUntil:clean(raw.valid_until), active:raw.is_active !== false}; }
 async function requireAdmin(){
   const {data:{user}} = await supabaseClient().auth.getUser();
   if(!user) throw new Error('Login required');
@@ -224,9 +229,13 @@ async function requireAdmin(){
   return user;
 }
 async function ensureVariantAvailabilityReady(){
-  const {error} = await supabaseClient().from('product_variants').select('stock_status').limit(1);
+  const [variantRes, productRes] = await Promise.all([
+    supabaseClient().from('product_variants').select('stock_status,stock').limit(1),
+    supabaseClient().from('products').select('barcode,barcode_enabled,track_inventory,stock_quantity').limit(1)
+  ]);
+  const error = variantRes.error || productRes.error;
   if(!error) return;
-  if(/stock_status|column/i.test(error.message || '')) throw new Error('Run supabase/04_add_variant_availability.sql in Supabase first.');
+  if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql in Supabase first.');
   throw error;
 }
 async function validateLogin(email, password){
@@ -243,10 +252,11 @@ async function validateLogin(email, password){
 async function refreshMeta(){
   await requireAdmin();
   setStatus('Syncing...', 'loading');
-  const [catRes, subRes, offerRes] = await Promise.all([
+  const [catRes, subRes, offerRes, offerItemRes] = await Promise.all([
     supabaseClient().from('categories').select('id,name,image_url,storage_path,description,sort_order,is_active').order('sort_order', {ascending:true}).order('name', {ascending:true}),
     supabaseClient().from('subcategories').select('id,category_id,name,sort_order,is_active').order('sort_order', {ascending:true}).order('name', {ascending:true}),
-    supabaseClient().from('offer_slides').select('id,title,subtitle,quantity,image_url,storage_path,mrp,price,link,is_active,sort_order').order('sort_order', {ascending:true}).order('created_at', {ascending:false})
+    supabaseClient().from('offer_slides').select('id,title,subtitle,quantity,image_url,storage_path,mrp,price,link,is_active,sort_order').order('sort_order', {ascending:true}).order('created_at', {ascending:false}),
+    supabaseClient().from('offer_items').select('id,title,item_link,offer_price,discount_percentage,valid_until,is_active,sort_order,created_at').order('sort_order', {ascending:true}).order('created_at', {ascending:false})
   ]);
   if(catRes.error) throw new Error('Cannot load categories: ' + catRes.error.message);
   if(subRes.error) throw new Error('Cannot load subcategories: ' + subRes.error.message);
@@ -254,8 +264,10 @@ async function refreshMeta(){
   subcategories = (subRes.data || []).map(s => ({id:s.id, category_id:s.category_id, name:clean(s.name), active:s.is_active !== false}));
   terms = FIXED_PRODUCT_TERMS.map(term => ({...term}));
   offers = offerRes.error ? [] : (offerRes.data || []).map(normalizeOffer);
-  fillCategoryInputs(); renderCategories(); renderTermChecks(); renderOffers();
-  setStatus(offerRes.error ? 'Products loaded; offers need SQL permission' : 'Synced ✅', offerRes.error ? 'error' : 'ok');
+  offerItems = offerItemRes.error ? [] : (offerItemRes.data || []).map(normalizeOfferItem);
+  fillCategoryInputs(); renderCategories(); renderTermChecks(); renderOffers(); renderOfferItems();
+  const promoError = offerRes.error || offerItemRes.error;
+  setStatus(promoError ? 'Products loaded; run the latest offers SQL migration if promotions are unavailable.' : 'Synced ✅', promoError ? 'error' : 'ok');
 }
 function fillCategoryInputs(){
   const activeCats = categories.filter(c=>c.active);
@@ -370,7 +382,7 @@ async function loadProducts(reset = true){
     const num = Number(search.replace(/[^0-9.]/g,''));
     const subMatches = subcategories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
     const catMatches = categories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
-    const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`];
+    const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`,`barcode.ilike.%${term}%`];
     if(num) parts.push(`price.eq.${num}`, `mrp.eq.${num}`);
     if(subMatches.length) parts.push(`subcategory_id.in.(${subMatches.join(',')})`);
     if(!category && catMatches.length) parts.push(`category_id.in.(${catMatches.join(',')})`);
@@ -391,7 +403,7 @@ async function loadProducts(reset = true){
 function productListHtml(products){
   return (products || []).map(p => `<article class="admin-product">
     <img loading="lazy" decoding="async" src="${esc(p.image || (p.images && p.images[0]) || '')}" onerror="this.style.display='none'">
-    <div><b>${esc(p.name)}</b><small>${esc(p.category)}${p.subcategory ? ' / ' + esc(p.subcategory) : ''} · ${p.mrp ? `<del>₹${esc(p.mrp)}</del> ` : ''}${p.price ? '₹'+esc(p.price) : 'Ask price'} · ${p.stockStatus === 'out_of_stock' ? 'Out of stock' : p.status !== 'active' ? 'Hidden' : 'Available'} · ${esc(p.sizes || 'Standard')}</small></div>
+    <div><b>${esc(p.name)}</b><small>${esc(p.category)}${p.subcategory ? ' / ' + esc(p.subcategory) : ''} · ${p.mrp ? `<del>₹${esc(p.mrp)}</del> ` : ''}${p.price ? '₹'+esc(p.price) : 'Ask price'} · ${p.stockStatus === 'out_of_stock' ? 'Out of stock' : p.status !== 'active' ? 'Hidden' : 'Available'}${p.trackInventory ? ` · ${Number(p.stockQuantity || 0)} unit${Number(p.stockQuantity || 0) === 1 ? '' : 's'} in stock` : ''}${p.barcodeEnabled && p.barcode ? ` · Barcode ${esc(p.barcode)}` : ''} · ${esc(p.sizes || 'Standard')}</small></div>
     <button type="button" data-edit="${esc(p.id)}">Edit</button>
   </article>`).join('');
 }
@@ -418,6 +430,17 @@ function selectedProductTerms(){ return Array.from($('productTermChecks').queryS
 function renderOffers(){
   $('offerList').innerHTML = offers.length ? offers.map((o,i) => `<article class="admin-product"><img src="${esc(o.image)}" onerror="this.style.display='none'"><div><b>Banner ${i+1}</b><small>${esc(o.link || 'catalog.html')} · ${o.active?'Active':'Hidden'}</small></div><button type="button" data-offer-edit="${esc(o.id)}">Edit</button></article>`).join('') : '<div class="empty">No discount banners added yet.</div>';
 }
+function renderOfferItems(){
+  const box = $('offerItemList');
+  if(!box) return;
+  const now = Date.now();
+  box.innerHTML = offerItems.length ? offerItems.map(item => {
+    const expiry = item.validUntil ? new Date(item.validUntil) : null;
+    const expired = expiry && Number.isFinite(expiry.getTime()) && expiry.getTime() < now;
+    const validity = expiry && Number.isFinite(expiry.getTime()) ? ` · Valid until ${expiry.toLocaleString()}` : ' · No expiry';
+    return `<article class="admin-product offer-item-row"><div class="offer-item-icon">%</div><div><b>${esc(item.title || 'Promotional item')}</b><small>${esc(item.link)} · Offer ${rupee(item.offerPrice)}${item.discount ? ` · ${esc(item.discount)}% discount` : ''}${validity} · ${expired ? 'Expired' : item.active ? 'Active' : 'Hidden'}</small></div><button type="button" data-offer-item-edit="${esc(item.id)}">Edit</button></article>`;
+  }).join('') : '<div class="empty">No promotional items added yet.</div>';
+}
 function switchView(view){
   document.querySelectorAll('.view-panel').forEach(x=>x.classList.remove('active'));
   const panel = $('view' + view[0].toUpperCase() + view.slice(1));
@@ -434,7 +457,7 @@ function clearProductImages(){ currentImages = []; newImageFiles = []; $('photoI
 function resetProduct(){
   editingProductId = '';
   productSaveInProgress = false;
-  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false);
+  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; if($('productStockQuantity')) $('productStockQuantity').value = '0'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false); updateInventoryControls();
   $('formTitle').textContent = 'Add product'; $('saveBtn').textContent = 'Save Product'; $('deleteBtn').style.display = 'none'; $('cancelEditBtn').classList.add('hide'); switchView('add');
 }
 function renderVariantRows(list = []){
@@ -461,7 +484,7 @@ function variantRowHtml(v,i){
       <label class="variant-value-label"><span class="variant-value-title">${kind === 'color' ? 'Colour name' : 'Size / option value'}</span><input class="variant-value" value="${esc(value)}" placeholder="${kind === 'color' ? 'Gold / Silver / Black' : '9 / 500ml / Large'}"></label>
     </div>
     <label class="variant-color-sizes ${kind === 'color' ? '' : 'hide'}">Sizes for this colour optional<input class="variant-sizes" value="${esc(colourSizes)}" placeholder="8, 9, 10 — empty uses main options"></label>
-    <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label><label>MRP optional<input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Empty = main MRP"></label></div>
+    <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label><label class="variant-quantity-wrap">Available quantity<input class="variant-quantity" type="number" min="0" step="1" inputmode="numeric" value="${esc(Math.max(0, Number(v.stockQuantity ?? v.stock ?? 0) || 0))}" placeholder="0"></label><label>MRP optional<input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Empty = main MRP"></label></div>
     <label>Final price optional<input class="variant-price" inputmode="numeric" value="${esc(v.price || '')}" placeholder="Empty = main price"></label>
     <label class="fake-label">Separate images optional<small class="hint inline-hint">Leave empty to use the main product images.</small></label>
     <div class="variant-images">${imgs}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label></div>
@@ -471,6 +494,7 @@ function initializeVariantRow(row){
   if(!row) return;
   row.__variantFiles = [];
   updateVariantRowMode(row);
+  updateInventoryControls();
 }
 function updateVariantRowMode(row){
   if(!row) return;
@@ -497,6 +521,55 @@ function renumberVariantRows(){
     updateVariantRowTitle(row);
   });
 }
+function nonNegativeInt(value){
+  const number = Number.parseInt(String(value ?? '').replace(/[^0-9]/g,''), 10);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+function effectiveVariantStatus(row){
+  const manual = clean(row.querySelector('.variant-availability')?.value || 'in_stock');
+  if($('trackInventory')?.checked && nonNegativeInt(row.querySelector('.variant-quantity')?.value) <= 0) return 'out_of_stock';
+  return manual === 'out_of_stock' ? 'out_of_stock' : 'in_stock';
+}
+function updateInventoryControls(){
+  const barcodeOn = Boolean($('barcodeEnabled')?.checked);
+  const track = Boolean($('trackInventory')?.checked);
+  const barcodeInput = $('barcodeValue');
+  const scanButton = $('scanBarcodeBtn');
+  if(barcodeInput) barcodeInput.disabled = !barcodeOn;
+  if(scanButton) scanButton.disabled = !barcodeOn;
+  $('barcodeFieldWrap')?.classList.toggle('is-disabled', !barcodeOn);
+  const rows = Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
+  rows.forEach(row => {
+    row.querySelector('.variant-quantity-wrap')?.classList.toggle('hide', !track);
+    const qty = row.querySelector('.variant-quantity');
+    if(qty) qty.disabled = !track;
+    if(track && nonNegativeInt(qty?.value) <= 0){
+      const availability = row.querySelector('.variant-availability');
+      if(availability) availability.value = 'out_of_stock';
+    }
+  });
+  const productQty = $('productStockQuantity');
+  const hasVariants = rows.length > 0;
+  if(productQty){
+    productQty.disabled = !track || hasVariants;
+    if(track && hasVariants) productQty.value = String(rows.reduce((sum,row)=>sum + nonNegativeInt(row.querySelector('.variant-quantity')?.value), 0));
+  }
+  $('productStockWrap')?.classList.toggle('is-disabled', !track);
+  const hint = $('stockQuantityHint');
+  if(hint) hint.textContent = hasVariants ? 'Calculated automatically from all variant quantities.' : 'Enter the available quantity for this product.';
+  const summary = $('inventorySummary');
+  if(summary){
+    if(!track) summary.textContent = 'Stock tracking is off. Availability is controlled manually.';
+    else if(hasVariants){
+      const total = rows.reduce((sum,row)=>sum + nonNegativeInt(row.querySelector('.variant-quantity')?.value), 0);
+      const available = rows.filter(row=>effectiveVariantStatus(row)==='in_stock').length;
+      summary.textContent = `${total} total unit${total===1?'':'s'} across ${rows.length} variant${rows.length===1?'':'s'} · ${available} variant${available===1?'':'s'} currently available.`;
+    }else{
+      const total = nonNegativeInt(productQty?.value);
+      summary.textContent = `${total} unit${total===1?'':'s'} currently available.`;
+    }
+  }
+}
 function renderVariantImages(row){
   if(!row) return;
   const holder = row.querySelector('.variant-images');
@@ -518,7 +591,8 @@ function collectVariantRows(){
       sizes:kind === 'color' ? clean(row.querySelector('.variant-sizes')?.value) : '',
       mrp:price(row.querySelector('.variant-mrp')?.value),
       price:price(row.querySelector('.variant-price')?.value),
-      stockStatus:clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
+      stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),
+      stockStatus:effectiveVariantStatus(row),
       terms:[],
       existingImages:JSON.parse(row.dataset.existingImages || '[]'),
       existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
@@ -548,6 +622,7 @@ async function collectVariantsPayload(rows, uploadedPaths = []){
       sizes:item.kind === 'color' ? item.sizes : item.value,
       mrp:item.mrp,
       price:item.price,
+      stockQuantity:item.stockQuantity || 0,
       stockStatus:item.stockStatus || 'in_stock',
       terms:item.terms,
       imageUrls:item.existingImages.concat(uploaded.map(x=>x.url)),
@@ -572,7 +647,8 @@ function readVariantRowData(row){
     label: kind === 'color' ? clean(row.querySelector('.variant-sizes')?.value) : value,
     mrp: price(row.querySelector('.variant-mrp')?.value),
     price: price(row.querySelector('.variant-price')?.value),
-    stockStatus: clean(row.querySelector('.variant-availability')?.value || 'in_stock'),
+    stockQuantity: nonNegativeInt(row.querySelector('.variant-quantity')?.value),
+    stockStatus: effectiveVariantStatus(row),
     images: JSON.parse(row.dataset.existingImages || '[]'),
     storagePaths: JSON.parse(row.dataset.existingPaths || '[]'),
     terms: []
@@ -585,7 +661,7 @@ async function openProduct(id){
   const p = normalizeProduct(data);
   if(!p || !p.id) return;
   editingProductId = p.id;
-  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock');
+  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock'); if($('barcodeEnabled')) $('barcodeEnabled').checked = p.barcodeEnabled; if($('barcodeValue')) $('barcodeValue').value = p.barcode || ''; if($('trackInventory')) $('trackInventory').checked = p.trackInventory; if($('productStockQuantity')) $('productStockQuantity').value = String(p.stockQuantity || 0);
   currentImages = p.images && p.images.length ? p.images : (p.image ? [p.image] : []); newImageFiles = []; renderImagePreviews(); renderTermChecks(p.terms);
   renderVariantRows(p.variants || []);
   $('formTitle').textContent = 'Edit product'; $('saveBtn').textContent = 'Update Product'; $('deleteBtn').style.display = 'inline-flex'; $('cancelEditBtn').classList.remove('hide'); switchView('add');
@@ -608,6 +684,17 @@ async function saveProduct(event){
     if(!category || !name || !pr) throw new Error('Select category, enter product name and final price');
     const variantDrafts = collectVariantRows();
     validateVariantRows(variantDrafts);
+    const barcodeEnabled = Boolean($('barcodeEnabled')?.checked);
+    const barcode = clean($('barcodeValue')?.value);
+    if(barcodeEnabled && !barcode) throw new Error('Scan or enter a barcode, or turn Barcode identification off.');
+    if(barcodeEnabled){
+      let barcodeQuery = supabaseClient().from('products').select('id,name').eq('barcode', barcode).limit(1);
+      if(id) barcodeQuery = barcodeQuery.neq('id', id);
+      const {data:barcodeMatch,error:barcodeError}=await barcodeQuery;
+      if(barcodeError) throw barcodeError;
+      if((barcodeMatch || []).length) throw new Error(`Barcode ${barcode} is already linked to ${barcodeMatch[0].name || 'another product'}.`);
+    }
+    const trackInventory = Boolean($('trackInventory')?.checked);
     if(!id && !currentImages.length && !newImageFiles.length && !variantDrafts.some(v=>v.files.length || v.existingImages.length)) throw new Error('Choose at least one product image');
     showBusy(id ? 'Updating product...' : 'Saving product...'); setStatus(id ? 'Updating product...' : 'Saving product...', 'loading');
     const sub = await ensureSubcategory(category.id, clean($('subcategory').value));
@@ -617,7 +704,10 @@ async function saveProduct(event){
     const allImages = currentImages.concat(newUploads.map(x=>x.url));
     const allPaths = currentImages.map(storagePathFromUrl).filter(Boolean).concat(newUploads.map(x=>x.path));
     const availability = clean($('availability')?.value || 'in_stock');
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || variantRows.find(v=>v.kind === 'option')?.sizes || 'Standard', colors:clean($('colors').value) || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock', updated_at:new Date().toISOString()};
+    const calculatedStock = variantRows.length ? variantRows.reduce((sum,v)=>sum + nonNegativeInt(v.stockQuantity), 0) : nonNegativeInt($('productStockQuantity')?.value);
+    const anyVariantAvailable = variantRows.some(v => v.stockStatus !== 'out_of_stock' && nonNegativeInt(v.stockQuantity) > 0);
+    const trackedStatus = variantRows.length ? (anyVariantAvailable ? 'in_stock' : 'out_of_stock') : (calculatedStock > 0 ? 'in_stock' : 'out_of_stock');
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || variantRows.find(v=>v.kind === 'option')?.sizes || 'Standard', colors:clean($('colors').value) || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock'), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];
@@ -640,8 +730,8 @@ async function saveProduct(event){
     }
     const deleteVariants = await supabaseClient().from('product_variants').delete().eq('product_id', productId); if(deleteVariants.error) throw deleteVariants.error;
     if(variantRows.length){
-      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color || '', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock_status:v.stockStatus || 'in_stock', sort_order:i}));
-      const {error}=await supabaseClient().from('product_variants').insert(rows); if(error){ if(/stock_status/i.test(error.message || '')) throw new Error('Run supabase/04_add_variant_availability.sql in Supabase, then save again.'); throw error; }
+      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color || '', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock:trackInventory ? nonNegativeInt(v.stockQuantity) : 0, stock_status:trackInventory && nonNegativeInt(v.stockQuantity) <= 0 ? 'out_of_stock' : (v.stockStatus || 'in_stock'), sort_order:i}));
+      const {error}=await supabaseClient().from('product_variants').insert(rows); if(error){ if(/stock_status/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql in Supabase, then save again.'); throw error; }
     }
     const keepPaths = new Set(allPaths.concat(variantRows.flatMap(v=>v.storagePaths)));
     await removeStorage(oldImagePaths.concat(oldVariantPaths).filter(p => !keepPaths.has(p)));
@@ -688,6 +778,46 @@ async function saveCategory(event){
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 async function deleteCategory(){ const name=clean($('categoryOldName').value); if(!name) return; if(!confirm(`Delete category ${name}? Products under it will lose category.`)) return; try{ showBusy('Deleting category...'); const c=categories.find(x=>key(x.name)===key(name)); if(c){ const {error}=await supabaseClient().from('categories').delete().eq('id', c.id); if(error) throw error; await removeStorage([c.storagePath || storagePathFromUrl(c.image)]); } await notifyCustomerStoreChanged(['categories','subcategories','products'], 'category-delete', {name}); await refreshMeta(); resetCategory(); hideBusy(); setStatus('Category deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
+function toDatetimeLocal(value){
+  if(!value) return '';
+  const d = new Date(value);
+  if(!Number.isFinite(d.getTime())) return '';
+  const local = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+  return local.toISOString().slice(0,16);
+}
+function resetOfferItem(){
+  $('offerItemForm')?.reset();
+  if($('offerItemId')) $('offerItemId').value='';
+  if($('offerItemActive')) $('offerItemActive').checked=true;
+  if($('deleteOfferItemBtn')) $('deleteOfferItemBtn').style.display='none';
+}
+function openOfferItem(id){
+  const item = offerItems.find(x=>x.id===id); if(!item) return;
+  $('offerItemId').value=item.id; $('offerItemLink').value=item.link || ''; $('offerItemPrice').value=item.offerPrice || ''; $('offerItemTitle').value=item.title || ''; $('offerItemDiscount').value=item.discount || ''; $('offerItemValidUntil').value=toDatetimeLocal(item.validUntil); $('offerItemActive').checked=item.active; $('deleteOfferItemBtn').style.display='inline-flex'; switchView('offers');
+}
+async function saveOfferItem(event){
+  event.preventDefault();
+  try{
+    await requireAdmin();
+    const id=clean($('offerItemId').value), link=clean($('offerItemLink').value), offerPrice=price($('offerItemPrice').value), discount=price($('offerItemDiscount').value), validLocal=clean($('offerItemValidUntil').value);
+    if(!link || !offerPrice) throw new Error('Enter the product link and offer price.');
+    if(discount !== null && (Number(discount) < 0 || Number(discount) > 100)) throw new Error('Discount percentage must be between 0 and 100.');
+    const validUntil = validLocal ? new Date(validLocal) : null;
+    if(validUntil && !Number.isFinite(validUntil.getTime())) throw new Error('Enter a valid offer expiry date and time.');
+    showBusy(id?'Updating offer item...':'Saving offer item...');
+    const row={title:clean($('offerItemTitle').value) || null,item_link:link,offer_price:Number(offerPrice),discount_percentage:discount===null?null:Number(discount),valid_until:validUntil?validUntil.toISOString():null,is_active:$('offerItemActive').checked,updated_at:new Date().toISOString()};
+    if(id){ const {error}=await supabaseClient().from('offer_items').update(row).eq('id',id); if(error) throw error; }
+    else { row.created_at=new Date().toISOString(); const {error}=await supabaseClient().from('offer_items').insert(row); if(error) throw error; }
+    await notifyCustomerStoreChanged(['offer_items'], id?'offer-item-update':'offer-item-insert', {offerItemId:id || ''});
+    await refreshMeta(); resetOfferItem(); hideBusy(); setStatus(id?'Offer item updated ✅':'Offer item saved ✅','ok');
+  }catch(err){ hideBusy(); setStatus(err.message,'error'); }
+}
+async function deleteOfferItem(){
+  const id=clean($('offerItemId').value); if(!id) return;
+  if(!confirm('Delete this promotional item?')) return;
+  try{ showBusy('Deleting offer item...'); const {error}=await supabaseClient().from('offer_items').delete().eq('id',id); if(error) throw error; await notifyCustomerStoreChanged(['offer_items'],'offer-item-delete',{offerItemId:id}); await refreshMeta(); resetOfferItem(); hideBusy(); setStatus('Offer item deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); }
+}
+
 function resetOffer(){ $('offerForm').reset(); $('offerId').value=''; currentOfferImageUrl=''; currentOfferStoragePath=''; currentOfferFile=null; $('offerPreview').removeAttribute('src'); $('offerActive').checked=true; $('deleteOfferBtn').style.display='none'; }
 function openOffer(id){ const o = offers.find(x=>x.id===id); if(!o) return; $('offerId').value=o.id; $('offerTitle').value=o.title || ''; $('offerMrp').value=o.mrp || ''; $('offerPrice').value=o.price || ''; $('offerQuantity').value=o.quantity || ''; $('offerLink').value=o.link || ''; $('offerActive').checked=o.active; currentOfferImageUrl=o.image; currentOfferStoragePath=o.storagePath || storagePathFromUrl(o.image); currentOfferFile=null; if(o.image) $('offerPreview').src=o.image; $('deleteOfferBtn').style.display='inline-flex'; switchView('offers'); }
 async function saveOffer(event){
@@ -708,6 +838,56 @@ async function saveOffer(event){
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 async function deleteOffer(){ const id=clean($('offerId').value); if(!id) return; if(!confirm('Delete this offer slide?')) return; try{ showBusy('Deleting offer...'); const o=offers.find(x=>x.id===id); const {error}=await supabaseClient().from('offer_slides').delete().eq('id', id); if(error) throw error; await removeStorage([o?.storagePath || storagePathFromUrl(o?.image)]); await notifyCustomerStoreChanged(['offer_slides'], 'offer-delete', {offerId:id}); await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
+function stopBarcodeScanner(){
+  if(barcodeScanFrame){ cancelAnimationFrame(barcodeScanFrame); barcodeScanFrame=null; }
+  if(barcodeScanStream){ barcodeScanStream.getTracks().forEach(track=>track.stop()); barcodeScanStream=null; }
+  const video=$('barcodeVideo'); if(video){ video.pause(); video.srcObject=null; }
+  const modal=$('barcodeScanner'); if(modal){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); }
+}
+async function useScannedBarcode(code){
+  code=clean(code); if(!code) return;
+  stopBarcodeScanner();
+  if(barcodeScanMode==='assign'){
+    $('barcodeEnabled').checked=true; $('barcodeValue').value=code; updateInventoryControls(); setStatus(`Barcode ${code} assigned. Save the product to keep it.`,'ok'); return;
+  }
+  try{
+    showBusy('Finding product...');
+    const {data,error}=await supabaseClient().from('products').select('id,name,barcode,barcode_enabled').eq('barcode',code).eq('barcode_enabled',true).maybeSingle();
+    if(error) throw error;
+    hideBusy();
+    if(data?.id){ await openProduct(data.id); setStatus(`Opened ${data.name || 'product'} from barcode ${code}.`,'ok'); return; }
+    resetProduct(); $('barcodeEnabled').checked=true; $('barcodeValue').value=code; updateInventoryControls(); setStatus(`No product uses barcode ${code}. A new product form is ready with this code.`,'ok');
+  }catch(err){ hideBusy(); setStatus(err.message,'error'); }
+}
+async function startBarcodeScanner(mode='lookup'){
+  barcodeScanMode=mode;
+  const modal=$('barcodeScanner'), message=$('scannerMessage'), video=$('barcodeVideo');
+  modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); $('manualBarcodeInput').value='';
+  message.textContent='Starting camera…';
+  if(!navigator.mediaDevices?.getUserMedia){ message.textContent='Camera scanning is not available here. Enter the barcode below or use a hardware scanner.'; $('manualBarcodeInput').focus(); return; }
+  try{
+    barcodeScanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    video.srcObject=barcodeScanStream; await video.play();
+    if(!('BarcodeDetector' in window)){
+      message.textContent='Live barcode detection is not supported by this browser. Enter the code below or use a hardware scanner.'; $('manualBarcodeInput').focus(); return;
+    }
+    let formats=[]; try{ formats=await BarcodeDetector.getSupportedFormats(); }catch(_error){}
+    const desired=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code'].filter(f=>!formats.length || formats.includes(f));
+    const detector=new BarcodeDetector(desired.length?{formats:desired}:undefined);
+    message.textContent='Point the barcode inside the camera area.';
+    let detecting=false;
+    const tick=async()=>{
+      if(!barcodeScanStream) return;
+      if(!detecting && video.readyState>=2){
+        detecting=true;
+        try{ const codes=await detector.detect(video); if(codes?.[0]?.rawValue){ await useScannedBarcode(codes[0].rawValue); return; } }catch(_error){} finally{ detecting=false; }
+      }
+      barcodeScanFrame=requestAnimationFrame(tick);
+    };
+    barcodeScanFrame=requestAnimationFrame(tick);
+  }catch(err){ message.textContent=`Camera unavailable: ${err.message}. Enter the barcode below or use a hardware scanner.`; $('manualBarcodeInput').focus(); }
+}
+
 async function lockAdmin(){ resetCustomerUpdateChannel(); try{ await supabaseClient().auth.signOut(); }catch(e){} $('adminShell').classList.add('is-locked'); $('loginScreen').style.display='grid'; if($('adminPasswordInput')) $('adminPasswordInput').value=''; setStatus('Login required'); }
 function bindEvents(){
   $('menuToggle').addEventListener('click', () => { const open = $('adminMenu').classList.toggle('open'); $('menuToggle').setAttribute('aria-expanded', String(open)); });
@@ -715,6 +895,11 @@ function bindEvents(){
   $('logoutBtn').addEventListener('click', lockAdmin);
   $('loginForm').addEventListener('submit', async e => { e.preventDefault(); $('loginError').textContent='Checking...'; try{ await validateLogin(clean($('adminEmailInput').value), clean($('adminPasswordInput').value)); $('loginError').textContent=''; }catch(err){ $('loginError').textContent=err.message; } });
   $('newProductBtn').addEventListener('click', resetProduct);
+  $('scanProductBtn').addEventListener('click', () => startBarcodeScanner('lookup'));
+  $('scanBarcodeBtn').addEventListener('click', () => startBarcodeScanner('assign'));
+  $('barcodeEnabled').addEventListener('change', updateInventoryControls);
+  $('trackInventory').addEventListener('change', updateInventoryControls);
+  $('productStockQuantity').addEventListener('input', updateInventoryControls);
   $('reloadProductsBtn').addEventListener('click', () => loadProducts(true).catch(err=>setStatus(err.message,'error')));
   $('productCategoryFilter').addEventListener('change', () => loadProducts(true).catch(err=>setStatus(err.message,'error')));
   $('category').addEventListener('change', () => { $('subcategory').value = ''; renderProductSubcategoryOptions(false); });
@@ -738,7 +923,11 @@ function bindEvents(){
   $('categoryForm').addEventListener('submit', saveCategory); $('deleteCategoryBtn').addEventListener('click', deleteCategory);
   $('offerPhotoPicker').addEventListener('click', () => $('offerImageInput').click());
   $('offerImageInput').addEventListener('change', () => { currentOfferFile = $('offerImageInput').files[0] || null; if(currentOfferFile) $('offerPreview').src = URL.createObjectURL(currentOfferFile); });
+  $('offerItemForm').addEventListener('submit', saveOfferItem); $('cancelOfferItemBtn').addEventListener('click', resetOfferItem); $('deleteOfferItemBtn').addEventListener('click', deleteOfferItem);
   $('offerForm').addEventListener('submit', saveOffer); $('cancelOfferBtn').addEventListener('click', resetOffer); $('deleteOfferBtn').addEventListener('click', deleteOffer);
+  $('closeBarcodeScanner').addEventListener('click', stopBarcodeScanner);
+  $('barcodeScanner').addEventListener('click', e => { if(e.target === $('barcodeScanner')) stopBarcodeScanner(); });
+  $('manualBarcodeForm').addEventListener('submit', e => { e.preventDefault(); useScannedBarcode($('manualBarcodeInput').value); });
   document.addEventListener('click', e => {
     const subcategoryOption = e.target.closest('[data-subcategory-option]');
     if(subcategoryOption){ chooseProductSubcategory(subcategoryOption.dataset.subcategoryOption); return; }
@@ -746,19 +935,22 @@ function bindEvents(){
     const edit = e.target.closest('[data-edit]'); if(edit) openProduct(edit.dataset.edit).catch(err=>setStatus(err.message,'error'));
     const cat = e.target.closest('[data-cat-edit]'); if(cat) openCategory(cat.dataset.catEdit);
     const offer = e.target.closest('[data-offer-edit]'); if(offer) openOffer(offer.dataset.offerEdit);
+    const offerItem = e.target.closest('[data-offer-item-edit]'); if(offerItem) openOfferItem(offerItem.dataset.offerItemEdit);
     const re = e.target.closest('[data-remove-existing-image]'); if(re){ currentImages.splice(Number(re.dataset.removeExistingImage),1); renderImagePreviews(); }
     const rn = e.target.closest('[data-remove-new-image]'); if(rn){ newImageFiles.splice(Number(rn.dataset.removeNewImage),1); renderImagePreviews(); }
-    const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!$('variantList').querySelector('.variant-row')) renderVariantRows([]); else renumberVariantRows(); }
+    const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!$('variantList').querySelector('.variant-row')) renderVariantRows([]); else renumberVariantRows(); updateInventoryControls(); }
     const existingImage = e.target.closest('[data-remove-variant-existing]'); if(existingImage){ const row=existingImage.closest('.variant-row'); if(row){ const index=Number(existingImage.dataset.removeVariantExisting || 0); const imgs=JSON.parse(row.dataset.existingImages || '[]'); const paths=JSON.parse(row.dataset.existingPaths || '[]'); imgs.splice(index,1); paths.splice(index,1); row.dataset.existingImages=JSON.stringify(imgs); row.dataset.existingPaths=JSON.stringify(paths); renderVariantImages(row); } }
     const newImage = e.target.closest('[data-remove-variant-new]'); if(newImage){ const row=newImage.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.splice(Number(newImage.dataset.removeVariantNew || 0),1); renderVariantImages(row); } }
   });
   document.addEventListener('change', e => {
     if(e.target.classList.contains('variant-kind')) updateVariantRowMode(e.target.closest('.variant-row'));
+    if(e.target.classList.contains('variant-availability')) updateInventoryControls();
     if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.push(...Array.from(e.target.files || [])); e.target.value=''; renderVariantImages(row); } }
   });
   document.addEventListener('input', e => {
     if(e.target.classList.contains('variant-value')) updateVariantRowTitle(e.target.closest('.variant-row'));
+    if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
     if(e.target.id === 'optionTitle') $('variantList').querySelectorAll('.variant-row').forEach(updateVariantRowMode);
   });
 }
-bindEvents(); renderVariantRows([]); lockAdmin();
+bindEvents(); renderVariantRows([]); updateInventoryControls(); resetOfferItem(); lockAdmin();

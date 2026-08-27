@@ -14,7 +14,7 @@
       }catch(_error){}
     })();
   </script>
-  <link rel="stylesheet" href="css/admin.css?v=72">
+  <link rel="stylesheet" href="css/admin.css?v=73">
   <link rel="icon" href="./assets/favicon/favicon.ico" type="image/x-icon">
   <link rel="apple-touch-icon" href="./assets/favicon/apple-icon-180x180.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -48,7 +48,7 @@
         <button data-view="products" class="active" type="button">Products</button>
         <button data-view="add" type="button">Add Product</button>
         <button data-view="categories" type="button">Categories</button>
-        <button data-view="offers" type="button">Offer Slides</button>
+        <button data-view="offers" type="button">Offers</button>
         <button id="logoutBtn" type="button">Logout</button>
       </nav>
     </header>
@@ -63,7 +63,8 @@
         </div>
         <div class="list-controls">
           <select id="productCategoryFilter"></select>
-          <input id="searchProducts" type="search" placeholder="Search products, category, subcategory or price">
+          <input id="searchProducts" type="search" placeholder="Search products, barcode, category, subcategory or price">
+          <button id="scanProductBtn" class="scan-action" type="button">Scan barcode</button>
           <button id="reloadProductsBtn" type="button">Load</button>
         </div>
         <div id="productList" class="product-list"></div>
@@ -104,6 +105,26 @@
               <small id="categoryHint" class="hint hide"></small>
               
               <label>Product name<input id="productName" placeholder="Name" required></label>
+              <section class="inventory-box" aria-labelledby="inventoryTitle">
+                <div class="inventory-head">
+                  <div><b id="inventoryTitle">Inventory & barcode</b><small>Optional controls for item identification and quantity-based stock.</small></div>
+                </div>
+                <div class="inventory-toggle-grid">
+                  <label class="switch-row"><span><b>Barcode identification</b><small>Link a scannable code to this product.</small></span><input id="barcodeEnabled" type="checkbox"></label>
+                  <label class="switch-row"><span><b>Track stock quantity</b><small>Calculate availability from product or variant quantities.</small></span><input id="trackInventory" type="checkbox"></label>
+                </div>
+                <div class="inventory-fields">
+                  <label id="barcodeFieldWrap">Product barcode
+                    <div class="barcode-input-row"><input id="barcodeValue" autocomplete="off" placeholder="Scan or enter EAN / UPC / Code 128"><button id="scanBarcodeBtn" type="button">Scan</button></div>
+                    <small class="hint">Barcode must be unique when enabled.</small>
+                  </label>
+                  <label id="productStockWrap">Available quantity
+                    <input id="productStockQuantity" type="number" min="0" step="1" inputmode="numeric" value="0">
+                    <small id="stockQuantityHint" class="hint">Used when the product has no individual stock variants.</small>
+                  </label>
+                </div>
+                <div id="inventorySummary" class="inventory-summary">Stock tracking is off.</div>
+              </section>
               <div class="field-row three price-availability-row">
                 <label>MRP / crossed price<input id="mrp" inputmode="numeric" placeholder="1099"></label>
                 <label>Final price<input id="price" inputmode="numeric" placeholder="679" required></label>
@@ -154,35 +175,66 @@
       </section>
 
       <section id="viewOffers" class="view-panel clean-card">
-        <div class="panel-head"><div><p class="tag">home banner</p><h1>Discount banners</h1><p>Add only a banner image and redirect link. Recommended size: 1599 × 780.</p></div></div>
-        <form id="offerForm" class="offer-form">
-          <input id="offerId" type="hidden">
-          <input id="offerTitle" type="hidden">
-          <input id="offerMrp" type="hidden">
-          <input id="offerPrice" type="hidden">
-          <input id="offerQuantity" type="hidden">
-          <div class="category-form-grid">
-            <div>
-              <div id="offerPhotoPicker" class="photo-picker small"><span>🖼️</span><b>Select banner image</b><small>Recommended: 1599 × 780</small></div>
-              <input id="offerImageInput" type="file" accept="image/*" hidden>
-              <div id="offerPreviewWrap" class="single-preview"><img id="offerPreview" alt=""></div>
+        <div class="panel-head"><div><p class="tag">promotions</p><h1>Offers</h1><p>Manage promotional products and independent sliding banners from one place.</p></div></div>
+
+        <section class="offer-manager-block">
+          <div class="subpanel-head"><div><b>Offer items</b><small>Create a dedicated promotional item using any product link.</small></div></div>
+          <form id="offerItemForm" class="offer-item-form">
+            <input id="offerItemId" type="hidden">
+            <div class="field-row two">
+              <label>Product link<input id="offerItemLink" type="text" placeholder="catalog.html?product=... or https://..." required></label>
+              <label>Offer price<input id="offerItemPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="599" required></label>
             </div>
-            <div class="form-fields">
-              <label>Redirect link<input id="offerLink" placeholder="catalog.html?cat=Cosmetics or https://..."></label>
-              <label class="inline-check"><input id="offerActive" type="checkbox" checked> Show this banner</label>
-              <div class="save-row"><button id="cancelOfferBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Banner</button></div>
+            <div class="field-row three">
+              <label>Offer label <small class="optional">Optional</small><input id="offerItemTitle" type="text" placeholder="Weekend special"></label>
+              <label>Discount percentage <small class="optional">Optional</small><input id="offerItemDiscount" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="25"></label>
+              <label>Valid until <small class="optional">Optional</small><input id="offerItemValidUntil" type="datetime-local"></label>
             </div>
-          </div>
-        </form>
-        <div id="offerList" class="product-list"></div>
+            <label class="inline-check"><input id="offerItemActive" type="checkbox" checked> Show this offer item</label>
+            <div class="save-row"><button id="cancelOfferItemBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferItemBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Offer Item</button></div>
+          </form>
+          <div id="offerItemList" class="product-list"></div>
+        </section>
+
+        <section class="offer-manager-block">
+          <div class="subpanel-head"><div><b>Sliding offer banners</b><small>Add independent promotional banners for the offer section. Recommended size: 1599 × 780.</small></div></div>
+          <form id="offerForm" class="offer-form">
+            <input id="offerId" type="hidden">
+            <input id="offerTitle" type="hidden">
+            <input id="offerMrp" type="hidden">
+            <input id="offerPrice" type="hidden">
+            <input id="offerQuantity" type="hidden">
+            <div class="category-form-grid">
+              <div>
+                <div id="offerPhotoPicker" class="photo-picker small"><span>🖼️</span><b>Select banner image</b><small>Recommended: 1599 × 780</small></div>
+                <input id="offerImageInput" type="file" accept="image/*" hidden>
+                <div id="offerPreviewWrap" class="single-preview"><img id="offerPreview" alt=""></div>
+              </div>
+              <div class="form-fields">
+                <label>Redirect link<input id="offerLink" placeholder="catalog.html?cat=Cosmetics or https://..."></label>
+                <label class="inline-check"><input id="offerActive" type="checkbox" checked> Show this banner</label>
+                <div class="save-row"><button id="cancelOfferBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Banner</button></div>
+              </div>
+            </div>
+          </form>
+          <div id="offerList" class="product-list"></div>
+        </section>
       </section>
     </main>
   </div>
 
+  <div id="barcodeScanner" class="barcode-scanner" aria-hidden="true">
+    <div class="barcode-scanner-card" role="dialog" aria-modal="true" aria-labelledby="barcodeScannerTitle">
+      <div class="scanner-head"><div><b id="barcodeScannerTitle">Scan product barcode</b><small>Point the rear camera at the code, or enter it below.</small></div><button id="closeBarcodeScanner" type="button" aria-label="Close scanner">×</button></div>
+      <div class="scanner-video-wrap"><video id="barcodeVideo" playsinline muted></video><div class="scanner-line"></div><div id="scannerMessage" class="scanner-message">Starting camera…</div></div>
+      <form id="manualBarcodeForm" class="manual-barcode-form"><input id="manualBarcodeInput" autocomplete="off" placeholder="Enter barcode or use a hardware scanner"><button type="submit">Use code</button></form>
+    </div>
+  </div>
+
   <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/admin-config.js?v=72"></script>
-  <script src="js/admin.js?v=72"></script>
-  <script src="js/pwa-install.js?v=72"></script>
+  <script src="js/admin-config.js?v=73"></script>
+  <script src="js/admin.js?v=73"></script>
+  <script src="js/pwa-install.js?v=73"></script>
 </body>
 </html>
