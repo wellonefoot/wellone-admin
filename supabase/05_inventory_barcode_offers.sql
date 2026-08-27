@@ -34,6 +34,10 @@ create table if not exists public.offer_items (
 create index if not exists offer_items_active_sort
   on public.offer_items (is_active, sort_order, created_at desc);
 
+-- PostgREST/API table privileges. RLS below still controls which rows each role can access.
+grant select on table public.offer_items to anon;
+grant select, insert, update, delete on table public.offer_items to authenticated;
+
 alter table public.offer_items enable row level security;
 
 drop policy if exists "Public can view active offer items" on public.offer_items;

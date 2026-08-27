@@ -25,3 +25,6 @@ If the customer storefront code is provided, it can be updated to display exact 
 ## v74 barcode change
 - Removed camera barcode scanning, BarcodeDetector usage, scanner popup, and scan buttons.
 - Barcode assignment and lookup are manual text entry only.
+
+## Offer permission hotfix
+If the Offers page shows `permission denied for table offer_items`, run `supabase/06_offer_items_permissions.sql` once in Supabase SQL Editor. The original v74 migration now also includes the required PostgREST grants.
