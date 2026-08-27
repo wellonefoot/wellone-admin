@@ -773,6 +773,14 @@ async function saveCategory(event){
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 async function deleteCategory(){ const name=clean($('categoryOldName').value); if(!name) return; if(!confirm(`Delete category ${name}? Products under it will lose category.`)) return; try{ showBusy('Deleting category...'); const c=categories.find(x=>key(x.name)===key(name)); if(c){ const {error}=await supabaseClient().from('categories').delete().eq('id', c.id); if(error) throw error; await removeStorage([c.storagePath || storagePathFromUrl(c.image)]); } await notifyCustomerStoreChanged(['categories','subcategories','products'], 'category-delete', {name}); await refreshMeta(); resetCategory(); hideBusy(); setStatus('Category deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
+function offerProductIdFromLink(link){
+  const raw = clean(link);
+  if(!raw) return '';
+  try{
+    const url = new URL(raw, 'https://wellone.in/');
+    return clean(url.searchParams.get('id'));
+  }catch(_error){ return ''; }
+}
 function toDatetimeLocal(value){
   if(!value) return '';
   const d = new Date(value);
@@ -796,6 +804,11 @@ async function saveOfferItem(event){
     await requireAdmin();
     const id=clean($('offerItemId').value), link=clean($('offerItemLink').value), offerPrice=price($('offerItemPrice').value), discount=price($('offerItemDiscount').value), validLocal=clean($('offerItemValidUntil').value);
     if(!link || !offerPrice) throw new Error('Enter the product link and offer price.');
+    const linkedProductId = offerProductIdFromLink(link);
+    if(!linkedProductId) throw new Error('Use the exact product page link. Open the product on the customer site and copy its product.html?...&id=... link.');
+    const {data:linkedProduct, error:linkedProductError} = await supabaseClient().from('products').select('id,status').eq('id',linkedProductId).maybeSingle();
+    if(linkedProductError) throw linkedProductError;
+    if(!linkedProduct || clean(linkedProduct.status || 'active') !== 'active') throw new Error('The linked product was not found or is not active.');
     if(discount !== null && (Number(discount) < 0 || Number(discount) > 100)) throw new Error('Discount percentage must be between 0 and 100.');
     const validUntil = validLocal ? new Date(validLocal) : null;
     if(validUntil && !Number.isFinite(validUntil.getTime())) throw new Error('Enter a valid offer expiry date and time.');

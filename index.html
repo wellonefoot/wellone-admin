@@ -26,11 +26,11 @@
 </head>
 <body>
   <div id="pwaLaunchSplash" class="app-launch-splash" aria-hidden="true">
-    <img src="assets/logo.png?v=74" alt="" width="3144" height="824" fetchpriority="high">
+    <img src="assets/logo.png?v=75" alt="" width="3144" height="824" fetchpriority="high">
   </div>
   <section id="loginScreen" class="login-screen">
     <form id="loginForm" class="login-card">
-      <img src="assets/logo.png?v=74" alt="Wellone logo" width="3144" height="824" decoding="async">
+      <img src="assets/logo.png?v=75" alt="Wellone logo" width="3144" height="824" decoding="async">
       <p class="tag">secure admin</p>
       <h1>Admin</h1>
       <input id="adminEmailInput" type="email" placeholder="Admin email" autocomplete="username" required>
@@ -42,7 +42,7 @@
 
   <div id="adminShell" class="admin-shell is-locked">
     <header class="admin-head">
-      <a class="admin-logo"><img src="assets/logo.png?v=74" alt="Wellone" width="3144" height="824" decoding="async"></a>
+      <a class="admin-logo"><img src="assets/logo.png?v=75" alt="Wellone" width="3144" height="824" decoding="async"></a>
       <button id="menuToggle" class="menu-toggle" type="button">☰</button>
       <nav id="adminMenu" class="admin-menu">
         <button data-view="products" class="active" type="button">Products</button>
@@ -181,11 +181,11 @@
         <div class="panel-head"><div><p class="tag">promotions</p><h1>Offers</h1><p>Manage promotional products and independent sliding banners from one place.</p></div></div>
 
         <section class="offer-manager-block">
-          <div class="subpanel-head"><div><b>Offer items</b><small>Create a dedicated promotional item using any product link.</small></div></div>
+          <div class="subpanel-head"><div><b>Offer product items</b><small>Add product offers for the separate customer Offers page. Live offers use the offer price; expired offers automatically fall back to the regular product price.</small></div></div>
           <form id="offerItemForm" class="offer-item-form">
             <input id="offerItemId" type="hidden">
             <div class="field-row two">
-              <label>Product link<input id="offerItemLink" type="text" placeholder="catalog.html?product=... or https://..." required></label>
+              <label>Product link<input id="offerItemLink" type="text" placeholder="product.html?cat=Cosmetics&amp;id=PRODUCT_ID or full product URL" required></label>
               <label>Offer price<input id="offerItemPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="599" required></label>
             </div>
             <div class="field-row three">
@@ -200,7 +200,7 @@
         </section>
 
         <section class="offer-manager-block">
-          <div class="subpanel-head"><div><b>Sliding offer banners</b><small>Add independent promotional banners for the offer section. Recommended size: 1599 × 780.</small></div></div>
+          <div class="subpanel-head"><div><b>Sliding offer banners</b><small>Add independent promotional banners. To open all offer products from a home banner, set its redirect link to <b>offers.html</b>. Recommended size: 1599 × 780.</small></div></div>
           <form id="offerForm" class="offer-form">
             <input id="offerId" type="hidden">
             <input id="offerTitle" type="hidden">
@@ -214,7 +214,7 @@
                 <div id="offerPreviewWrap" class="single-preview"><img id="offerPreview" alt=""></div>
               </div>
               <div class="form-fields">
-                <label>Redirect link<input id="offerLink" placeholder="catalog.html?cat=Cosmetics or https://..."></label>
+                <label>Redirect link<input id="offerLink" placeholder="offers.html or any product/category URL"></label>
                 <label class="inline-check"><input id="offerActive" type="checkbox" checked> Show this banner</label>
                 <div class="save-row"><button id="cancelOfferBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Banner</button></div>
               </div>
@@ -228,8 +228,8 @@
 
   <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/admin-config.js?v=74"></script>
-  <script src="js/admin.js?v=74"></script>
-  <script src="js/pwa-install.js?v=74"></script>
+  <script src="js/admin-config.js?v=75"></script>
+  <script src="js/admin.js?v=75"></script>
+  <script src="js/pwa-install.js?v=75"></script>
 </body>
 </html>

@@ -9,13 +9,13 @@ grant select, insert, update, delete on table public.offer_items to authenticate
 
 alter table public.offer_items enable row level security;
 
--- Storefront: only active, non-expired offers are readable.
+-- Storefront: active offers remain readable even after expiry so the customer UI can show an expired-offer warning and regular price.
 drop policy if exists "Public can view active offer items" on public.offer_items;
 create policy "Public can view active offer items"
   on public.offer_items
   for select
   to anon, authenticated
-  using (is_active = true and (valid_until is null or valid_until > now()));
+  using (is_active = true);
 
 -- Admin app: authenticated users that exist in public.admin_users can manage all offers.
 drop policy if exists "Admins can manage offer items" on public.offer_items;

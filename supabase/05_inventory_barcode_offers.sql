@@ -43,7 +43,7 @@ alter table public.offer_items enable row level security;
 drop policy if exists "Public can view active offer items" on public.offer_items;
 create policy "Public can view active offer items"
   on public.offer_items for select
-  using (is_active = true and (valid_until is null or valid_until > now()));
+  using (is_active = true);
 
 drop policy if exists "Admins can manage offer items" on public.offer_items;
 create policy "Admins can manage offer items"
