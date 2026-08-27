@@ -1,9 +1,9 @@
-const CACHE_VERSION = 'wellone-admin-v72-admin-events';
+const CACHE_VERSION = 'wellone-admin-v74-manual-barcode';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const SHELL_ASSETS = [
-  './', './index.html', './css/admin.css?v=72', './js/admin-config.js?v=72', './js/admin.js?v=72', './js/pwa-install.js?v=72',
-  './manifest.webmanifest', './assets/logo.png?v=72', './assets/favicon/favicon.ico',
+  './', './index.html', './css/admin.css?v=74', './js/admin-config.js?v=74', './js/admin.js?v=74', './js/pwa-install.js?v=74',
+  './manifest.webmanifest', './assets/logo.png?v=74', './assets/favicon/favicon.ico',
   './assets/favicon/wellone-icon-192-v46.png', './assets/favicon/wellone-icon-512-v46.png',
   './assets/favicon/wellone-icon-192-maskable-v46.png', './assets/favicon/wellone-icon-512-maskable-v46.png'
 ];

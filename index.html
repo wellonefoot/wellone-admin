@@ -26,11 +26,11 @@
 </head>
 <body>
   <div id="pwaLaunchSplash" class="app-launch-splash" aria-hidden="true">
-    <img src="assets/logo.png?v=72" alt="" width="3144" height="824" fetchpriority="high">
+    <img src="assets/logo.png?v=74" alt="" width="3144" height="824" fetchpriority="high">
   </div>
   <section id="loginScreen" class="login-screen">
     <form id="loginForm" class="login-card">
-      <img src="assets/logo.png?v=72" alt="Wellone logo" width="3144" height="824" decoding="async">
+      <img src="assets/logo.png?v=74" alt="Wellone logo" width="3144" height="824" decoding="async">
       <p class="tag">secure admin</p>
       <h1>Admin</h1>
       <input id="adminEmailInput" type="email" placeholder="Admin email" autocomplete="username" required>
@@ -42,7 +42,7 @@
 
   <div id="adminShell" class="admin-shell is-locked">
     <header class="admin-head">
-      <a class="admin-logo"><img src="assets/logo.png?v=72" alt="Wellone" width="3144" height="824" decoding="async"></a>
+      <a class="admin-logo"><img src="assets/logo.png?v=74" alt="Wellone" width="3144" height="824" decoding="async"></a>
       <button id="menuToggle" class="menu-toggle" type="button">☰</button>
       <nav id="adminMenu" class="admin-menu">
         <button data-view="products" class="active" type="button">Products</button>
@@ -64,9 +64,12 @@
         <div class="list-controls">
           <select id="productCategoryFilter"></select>
           <input id="searchProducts" type="search" placeholder="Search products, barcode, category, subcategory or price">
-          <button id="scanProductBtn" class="scan-action" type="button">Scan barcode</button>
           <button id="reloadProductsBtn" type="button">Load</button>
         </div>
+        <form id="barcodeLookupForm" class="barcode-lookup-row">
+          <input id="barcodeLookupInput" autocomplete="off" inputmode="text" placeholder="Type barcode to find or add a product">
+          <button type="submit">Check barcode</button>
+        </form>
         <div id="productList" class="product-list"></div>
         <button id="loadMoreProductsBtn" class="load-more hide" type="button">Load more products</button>
       </section>
@@ -110,13 +113,13 @@
                   <div><b id="inventoryTitle">Inventory & barcode</b><small>Optional controls for item identification and quantity-based stock.</small></div>
                 </div>
                 <div class="inventory-toggle-grid">
-                  <label class="switch-row"><span><b>Barcode identification</b><small>Link a scannable code to this product.</small></span><input id="barcodeEnabled" type="checkbox"></label>
+                  <label class="switch-row"><span><b>Barcode identification</b><small>Link a unique barcode to this product.</small></span><input id="barcodeEnabled" type="checkbox"></label>
                   <label class="switch-row"><span><b>Track stock quantity</b><small>Calculate availability from product or variant quantities.</small></span><input id="trackInventory" type="checkbox"></label>
                 </div>
                 <div class="inventory-fields">
                   <label id="barcodeFieldWrap">Product barcode
-                    <div class="barcode-input-row"><input id="barcodeValue" autocomplete="off" placeholder="Scan or enter EAN / UPC / Code 128"><button id="scanBarcodeBtn" type="button">Scan</button></div>
-                    <small class="hint">Barcode must be unique when enabled.</small>
+                    <input id="barcodeValue" autocomplete="off" inputmode="text" placeholder="Enter EAN / UPC / Code 128">
+                    <small class="hint">Enter the barcode manually. It must be unique when enabled.</small>
                   </label>
                   <label id="productStockWrap">Available quantity
                     <input id="productStockQuantity" type="number" min="0" step="1" inputmode="numeric" value="0">
@@ -223,18 +226,10 @@
     </main>
   </div>
 
-  <div id="barcodeScanner" class="barcode-scanner" aria-hidden="true">
-    <div class="barcode-scanner-card" role="dialog" aria-modal="true" aria-labelledby="barcodeScannerTitle">
-      <div class="scanner-head"><div><b id="barcodeScannerTitle">Scan product barcode</b><small>Point the rear camera at the code, or enter it below.</small></div><button id="closeBarcodeScanner" type="button" aria-label="Close scanner">×</button></div>
-      <div class="scanner-video-wrap"><video id="barcodeVideo" playsinline muted></video><div class="scanner-line"></div><div id="scannerMessage" class="scanner-message">Starting camera…</div></div>
-      <form id="manualBarcodeForm" class="manual-barcode-form"><input id="manualBarcodeInput" autocomplete="off" placeholder="Enter barcode or use a hardware scanner"><button type="submit">Use code</button></form>
-    </div>
-  </div>
-
   <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/admin-config.js?v=73"></script>
-  <script src="js/admin.js?v=73"></script>
-  <script src="js/pwa-install.js?v=73"></script>
+  <script src="js/admin-config.js?v=74"></script>
+  <script src="js/admin.js?v=74"></script>
+  <script src="js/pwa-install.js?v=74"></script>
 </body>
 </html>

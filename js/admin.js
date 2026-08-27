@@ -68,9 +68,6 @@ let currentOfferFile = null;
 let currentCategoryFile = null;
 let editingProductId = '';
 let productSaveInProgress = false;
-let barcodeScanStream = null;
-let barcodeScanFrame = null;
-let barcodeScanMode = 'lookup';
 const STORE_CHANNEL_NAME = 'wellone-store-events-v1';
 const STORE_EVENT_NAME = 'store-change';
 let customerUpdateChannel = null;
@@ -534,9 +531,7 @@ function updateInventoryControls(){
   const barcodeOn = Boolean($('barcodeEnabled')?.checked);
   const track = Boolean($('trackInventory')?.checked);
   const barcodeInput = $('barcodeValue');
-  const scanButton = $('scanBarcodeBtn');
   if(barcodeInput) barcodeInput.disabled = !barcodeOn;
-  if(scanButton) scanButton.disabled = !barcodeOn;
   $('barcodeFieldWrap')?.classList.toggle('is-disabled', !barcodeOn);
   const rows = Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
   rows.forEach(row => {
@@ -686,7 +681,7 @@ async function saveProduct(event){
     validateVariantRows(variantDrafts);
     const barcodeEnabled = Boolean($('barcodeEnabled')?.checked);
     const barcode = clean($('barcodeValue')?.value);
-    if(barcodeEnabled && !barcode) throw new Error('Scan or enter a barcode, or turn Barcode identification off.');
+    if(barcodeEnabled && !barcode) throw new Error('Enter a barcode, or turn Barcode identification off.');
     if(barcodeEnabled){
       let barcodeQuery = supabaseClient().from('products').select('id,name').eq('barcode', barcode).limit(1);
       if(id) barcodeQuery = barcodeQuery.neq('id', id);
@@ -838,54 +833,27 @@ async function saveOffer(event){
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 async function deleteOffer(){ const id=clean($('offerId').value); if(!id) return; if(!confirm('Delete this offer slide?')) return; try{ showBusy('Deleting offer...'); const o=offers.find(x=>x.id===id); const {error}=await supabaseClient().from('offer_slides').delete().eq('id', id); if(error) throw error; await removeStorage([o?.storagePath || storagePathFromUrl(o?.image)]); await notifyCustomerStoreChanged(['offer_slides'], 'offer-delete', {offerId:id}); await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
-function stopBarcodeScanner(){
-  if(barcodeScanFrame){ cancelAnimationFrame(barcodeScanFrame); barcodeScanFrame=null; }
-  if(barcodeScanStream){ barcodeScanStream.getTracks().forEach(track=>track.stop()); barcodeScanStream=null; }
-  const video=$('barcodeVideo'); if(video){ video.pause(); video.srcObject=null; }
-  const modal=$('barcodeScanner'); if(modal){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); }
-}
-async function useScannedBarcode(code){
-  code=clean(code); if(!code) return;
-  stopBarcodeScanner();
-  if(barcodeScanMode==='assign'){
-    $('barcodeEnabled').checked=true; $('barcodeValue').value=code; updateInventoryControls(); setStatus(`Barcode ${code} assigned. Save the product to keep it.`,'ok'); return;
-  }
+async function checkManualBarcode(code){
+  code=clean(code); if(!code){ setStatus('Enter a barcode to check.','error'); return; }
   try{
-    showBusy('Finding product...');
+    showBusy('Checking barcode...');
     const {data,error}=await supabaseClient().from('products').select('id,name,barcode,barcode_enabled').eq('barcode',code).eq('barcode_enabled',true).maybeSingle();
     if(error) throw error;
     hideBusy();
-    if(data?.id){ await openProduct(data.id); setStatus(`Opened ${data.name || 'product'} from barcode ${code}.`,'ok'); return; }
-    resetProduct(); $('barcodeEnabled').checked=true; $('barcodeValue').value=code; updateInventoryControls(); setStatus(`No product uses barcode ${code}. A new product form is ready with this code.`,'ok');
-  }catch(err){ hideBusy(); setStatus(err.message,'error'); }
-}
-async function startBarcodeScanner(mode='lookup'){
-  barcodeScanMode=mode;
-  const modal=$('barcodeScanner'), message=$('scannerMessage'), video=$('barcodeVideo');
-  modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); $('manualBarcodeInput').value='';
-  message.textContent='Starting camera…';
-  if(!navigator.mediaDevices?.getUserMedia){ message.textContent='Camera scanning is not available here. Enter the barcode below or use a hardware scanner.'; $('manualBarcodeInput').focus(); return; }
-  try{
-    barcodeScanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-    video.srcObject=barcodeScanStream; await video.play();
-    if(!('BarcodeDetector' in window)){
-      message.textContent='Live barcode detection is not supported by this browser. Enter the code below or use a hardware scanner.'; $('manualBarcodeInput').focus(); return;
+    if(data?.id){
+      await openProduct(data.id);
+      setStatus(`Opened ${data.name || 'product'} for barcode ${code}.`,'ok');
+      return;
     }
-    let formats=[]; try{ formats=await BarcodeDetector.getSupportedFormats(); }catch(_error){}
-    const desired=['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code'].filter(f=>!formats.length || formats.includes(f));
-    const detector=new BarcodeDetector(desired.length?{formats:desired}:undefined);
-    message.textContent='Point the barcode inside the camera area.';
-    let detecting=false;
-    const tick=async()=>{
-      if(!barcodeScanStream) return;
-      if(!detecting && video.readyState>=2){
-        detecting=true;
-        try{ const codes=await detector.detect(video); if(codes?.[0]?.rawValue){ await useScannedBarcode(codes[0].rawValue); return; } }catch(_error){} finally{ detecting=false; }
-      }
-      barcodeScanFrame=requestAnimationFrame(tick);
-    };
-    barcodeScanFrame=requestAnimationFrame(tick);
-  }catch(err){ message.textContent=`Camera unavailable: ${err.message}. Enter the barcode below or use a hardware scanner.`; $('manualBarcodeInput').focus(); }
+    resetProduct();
+    $('barcodeEnabled').checked=true;
+    $('barcodeValue').value=code;
+    updateInventoryControls();
+    setStatus(`Barcode ${code} is not assigned yet. A new product form is ready with this barcode.`,'ok');
+  }catch(err){
+    hideBusy();
+    setStatus(err.message,'error');
+  }
 }
 
 async function lockAdmin(){ resetCustomerUpdateChannel(); try{ await supabaseClient().auth.signOut(); }catch(e){} $('adminShell').classList.add('is-locked'); $('loginScreen').style.display='grid'; if($('adminPasswordInput')) $('adminPasswordInput').value=''; setStatus('Login required'); }
@@ -895,8 +863,6 @@ function bindEvents(){
   $('logoutBtn').addEventListener('click', lockAdmin);
   $('loginForm').addEventListener('submit', async e => { e.preventDefault(); $('loginError').textContent='Checking...'; try{ await validateLogin(clean($('adminEmailInput').value), clean($('adminPasswordInput').value)); $('loginError').textContent=''; }catch(err){ $('loginError').textContent=err.message; } });
   $('newProductBtn').addEventListener('click', resetProduct);
-  $('scanProductBtn').addEventListener('click', () => startBarcodeScanner('lookup'));
-  $('scanBarcodeBtn').addEventListener('click', () => startBarcodeScanner('assign'));
   $('barcodeEnabled').addEventListener('change', updateInventoryControls);
   $('trackInventory').addEventListener('change', updateInventoryControls);
   $('productStockQuantity').addEventListener('input', updateInventoryControls);
@@ -925,9 +891,10 @@ function bindEvents(){
   $('offerImageInput').addEventListener('change', () => { currentOfferFile = $('offerImageInput').files[0] || null; if(currentOfferFile) $('offerPreview').src = URL.createObjectURL(currentOfferFile); });
   $('offerItemForm').addEventListener('submit', saveOfferItem); $('cancelOfferItemBtn').addEventListener('click', resetOfferItem); $('deleteOfferItemBtn').addEventListener('click', deleteOfferItem);
   $('offerForm').addEventListener('submit', saveOffer); $('cancelOfferBtn').addEventListener('click', resetOffer); $('deleteOfferBtn').addEventListener('click', deleteOffer);
-  $('closeBarcodeScanner').addEventListener('click', stopBarcodeScanner);
-  $('barcodeScanner').addEventListener('click', e => { if(e.target === $('barcodeScanner')) stopBarcodeScanner(); });
-  $('manualBarcodeForm').addEventListener('submit', e => { e.preventDefault(); useScannedBarcode($('manualBarcodeInput').value); });
+  $('barcodeLookupForm').addEventListener('submit', e => {
+    e.preventDefault();
+    checkManualBarcode($('barcodeLookupInput').value);
+  });
   document.addEventListener('click', e => {
     const subcategoryOption = e.target.closest('[data-subcategory-option]');
     if(subcategoryOption){ chooseProductSubcategory(subcategoryOption.dataset.subcategoryOption); return; }
