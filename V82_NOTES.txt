@@ -1,0 +1,7 @@
+WellOne v82 — Admin
+
+- Exact stock is stored per colour + size combination.
+- Example: Blue/5, Blue/6, Blue/7, Blue/8 can all have different quantities.
+- Employee sales deduct only the selected exact combination.
+- v82 uses a fresh service-worker/cache namespace.
+- For the strongest realtime sync, run REQUIRED_V82_SUPABASE.sql (included in the complete package; also in Admin/Customer supabase folders).

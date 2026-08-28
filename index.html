@@ -15,7 +15,7 @@
       }catch(_error){}
     })();
   </script>
-<link href="css/admin.css?v=80" rel="stylesheet"/>
+<link href="css/admin.css?v=82" rel="stylesheet"/>
 <link href="./assets/favicon/favicon.ico" rel="icon" type="image/x-icon"/>
 <link href="./assets/favicon/apple-icon-180x180.png" rel="apple-touch-icon"/>
 <link href="manifest.webmanifest" rel="manifest"/>
@@ -24,14 +24,15 @@
 <meta content="yes" name="mobile-web-app-capable"/>
 <meta content="Wellone Admin" name="apple-mobile-web-app-title"/>
 <meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"/>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 </head>
 <body>
 <div aria-hidden="true" class="app-launch-splash" id="pwaLaunchSplash">
-<img alt="" fetchpriority="high" height="824" src="assets/logo.png?v=80" width="3144"/>
+<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=82" width="1100"/>
 </div>
 <section class="login-screen" id="loginScreen">
 <form class="login-card" id="loginForm">
-<img alt="Wellone logo" decoding="async" height="824" src="assets/logo.png?v=80" width="3144"/>
+<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=82" width="1100"/>
 <p class="tag">secure admin</p>
 <h1>Admin</h1>
 <input autocomplete="username" id="adminEmailInput" placeholder="Admin email" required="" type="email"/>
@@ -42,7 +43,7 @@
 </section>
 <div class="admin-shell is-locked" id="adminShell">
 <header class="admin-head">
-<a class="admin-logo"><img alt="Wellone" decoding="async" height="824" src="assets/logo.png?v=80" width="3144"/></a>
+<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=82" width="1100"/></a>
 <button class="menu-toggle" id="menuToggle" type="button">☰</button>
 <nav class="admin-menu" id="adminMenu">
 <button class="active" data-view="products" type="button">Products</button>
@@ -50,7 +51,7 @@
 <button data-view="categories" type="button">Categories</button>
 <button data-view="offers" type="button">Offers</button>
 
-<button data-view="employees" type="button">Employees</button>
+<button data-view="employees" type="button">👥 Employees</button>
 
 <button id="logoutBtn" type="button">Logout</button>
 </nav>
@@ -60,7 +61,7 @@
 <section class="view-panel active clean-card" id="viewProducts">
 <div class="panel-head">
 <div><p class="tag">products</p><h1>Product list</h1></div>
-<button class="submit-small" id="newProductBtn" type="button">+ Add product</button>
+<div class="panel-actions"><button class="ghost-btn employees-shortcut" id="openEmployeesBtn" type="button">👥 Employees</button><button class="submit-small" id="newProductBtn" type="button">+ Add product</button></div>
 </div>
 <div class="list-controls">
 <select id="productCategoryFilter"></select>
@@ -140,8 +141,15 @@
 <label>Description<textarea id="description" placeholder="Short product detail" rows="3"></textarea></label>
 <div class="term-picker"><b>Product policies</b><div class="check-grid" id="productTermChecks"></div></div>
 <div class="variant-box">
-<div class="variant-head"><b>Price, image &amp; stock variants</b><button id="addVariantBtn" type="button">+ Add variant</button></div>
-<small class="variant-help">Choose Size / option for 9, 500ml, Large, etc. Choose Colour for Gold, Silver, Black, etc.</small>
+<div class="variant-head"><b>Colour + size stock</b><button id="addVariantBtn" type="button">+ Add one combination</button></div>
+<small class="variant-help">Each colour can have its own sizes and quantity. Example: Blue → 5, 6, 7, 8; Black → 6, 7 only.</small>
+<div class="variant-bulk-add" aria-label="Quick add colour sizes">
+<label>Colour<input id="variantBulkColor" placeholder="Blue" type="text"/></label>
+<label>Sizes for this colour<input id="variantBulkSizes" placeholder="5, 6, 7, 8" type="text"/></label>
+<label>Qty each <small class="optional">Editable after adding</small><input id="variantBulkQty" inputmode="numeric" min="0" step="1" type="number" value="0"/></label>
+<button id="addColourSizesBtn" type="button">Add colour sizes</button>
+</div>
+<small class="variant-combination-help bulk-help">This creates one exact stock row per size. You can then set a different quantity, price or image for every colour + size.</small>
 <div class="variant-list" id="variantList"></div>
 </div>
 <div class="save-row">
@@ -232,8 +240,7 @@
 </div>
 <div class="busy-overlay" id="busy"><div><b></b><span id="busyText">Working...</span></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/admin-config.js?v=80"></script>
-<script src="js/admin.js?v=80"></script>
-<script src="js/pwa-install.js?v=80"></script>
+<script src="js/admin.bundle.js?v=82"></script>
+<script src="js/pwa-install.js?v=82"></script>
 </body>
 </html>
