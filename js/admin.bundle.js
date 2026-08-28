@@ -66,6 +66,7 @@ let offers = [];
 let offerItems = [];
 let adminOrders = [];
 let adminEmployees = [];
+const EMPLOYEE_PASSWORD_CACHE_KEY = 'wellone_admin_employee_passwords_v1';
 let orderRealtimeChannel = null;
 let orderReloadTimer = null;
 let currentProducts = [];
@@ -931,6 +932,18 @@ function ensureOrderRealtime(){
     }).subscribe();
   }catch(_error){orderRealtimeChannel=null;}
 }
+function readEmployeePasswordCache(){
+  try{ const value=JSON.parse(localStorage.getItem(EMPLOYEE_PASSWORD_CACHE_KEY)||'{}'); return value&&typeof value==='object'?value:{}; }catch(_error){ return {}; }
+}
+function rememberEmployeePassword(id,password){
+  id=clean(id); password=String(password||'');
+  if(!id||!password)return;
+  try{ const value=readEmployeePasswordCache(); value[id]=password; localStorage.setItem(EMPLOYEE_PASSWORD_CACHE_KEY,JSON.stringify(value)); }catch(_error){}
+}
+function employeePasswordText(id){
+  const value=readEmployeePasswordCache();
+  return value[clean(id)] || '';
+}
 function resetEmployeeForm(){
   if(!$('employeeForm'))return;
   $('employeeForm').reset(); $('employeeId').value='';
@@ -941,7 +954,14 @@ async function loadEmployees(){
   if(error){ if(/function|schema cache|admin_list_employees/i.test(error.message||'')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.'); throw error; }
   adminEmployees=data||[];
   const box=$('employeeList'); if(!box)return;
-  box.innerHTML=adminEmployees.length?adminEmployees.map(emp=>`<article class="employee-row"><div><b>${esc(emp.username)}</b><small>${emp.is_active?'Active':'Disabled'} · Created ${esc(adminOrderDate(emp.created_at))}</small></div><div><button type="button" data-employee-edit="${esc(emp.id)}">Edit</button><button type="button" class="${emp.is_active?'danger-soft':''}" data-employee-toggle="${esc(emp.id)}" data-active="${emp.is_active?'0':'1'}">${emp.is_active?'Disable':'Enable'}</button></div></article>`).join(''):'<div class="empty">No employees created yet.</div>';
+  const passwordCache=readEmployeePasswordCache();
+  box.innerHTML=adminEmployees.length?adminEmployees.map(emp=>{
+    const savedPassword=passwordCache[clean(emp.id)]||'';
+    const passwordLine=savedPassword
+      ? `<small class="employee-password-line">Password: <code>${esc(savedPassword)}</code></small>`
+      : `<small class="employee-password-line is-missing">Password: not available here — set a new password once to save/show it on this admin browser.</small>`;
+    return `<article class="employee-row"><div class="employee-row-copy"><b>${esc(emp.username)}</b>${passwordLine}<small>${emp.is_active?'Active':'Disabled'} · Created ${esc(adminOrderDate(emp.created_at))}</small></div><div class="employee-row-actions"><button type="button" data-employee-edit="${esc(emp.id)}">Edit</button><button type="button" class="${emp.is_active?'danger-soft':''}" data-employee-toggle="${esc(emp.id)}" data-active="${emp.is_active?'0':'1'}">${emp.is_active?'Disable':'Enable'}</button></div></article>`;
+  }).join(''):'<div class="empty">No employees created yet.</div>';
 }
 async function saveEmployee(event){
   event.preventDefault();
@@ -950,9 +970,11 @@ async function saveEmployee(event){
   if(!id && password.length<4)throw new Error('Create a password with at least 4 characters.');
   showBusy(id?'Updating employee...':'Creating employee...');
   try{
-    const {error}=await supabaseClient().rpc('admin_save_employee',{p_username:username,p_password:password,p_employee_id:id||null});
+    const {data,error}=await supabaseClient().rpc('admin_save_employee',{p_username:username,p_password:password,p_employee_id:id||null});
     if(error)throw error;
-    resetEmployeeForm(); await loadEmployees(); hideBusy(); setStatus(id?'Employee updated ✅':'Employee created ✅','ok');
+    const savedId=clean(data)||id;
+    if(password) rememberEmployeePassword(savedId,password);
+    resetEmployeeForm(); await loadEmployees(); hideBusy(); setStatus(id?'Employee updated':'Employee created','ok');
   }catch(error){hideBusy();setStatus(error.message,'error');}
 }
 function editEmployee(id){
@@ -963,7 +985,7 @@ async function toggleEmployee(id,active){
   const {error}=await supabaseClient().rpc('admin_set_employee_active',{p_employee_id:id,p_active:active});
   if(error)throw error;
   await loadEmployees();
-  setStatus(active?'Employee enabled ✅':'Employee disabled ✅','ok');
+  setStatus(active?'Employee enabled':'Employee disabled','ok');
 }
 
 async function checkManualBarcode(code){
@@ -1005,7 +1027,6 @@ function bindEvents(){
   $('logoutBtn').addEventListener('click', lockAdmin);
   $('loginForm').addEventListener('submit', async e => { e.preventDefault(); $('loginError').textContent='Checking...'; try{ await validateLogin(clean($('adminEmailInput').value), clean($('adminPasswordInput').value)); $('loginError').textContent=''; }catch(err){ $('loginError').textContent=err.message; } });
   $('newProductBtn').addEventListener('click', resetProduct);
-  $('openEmployeesBtn')?.addEventListener('click',()=>switchView('employees'));
   $('addColourSizesBtn')?.addEventListener('click',quickAddColourSizes);
   $('variantBulkSizes')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();quickAddColourSizes();}});
   $('barcodeEnabled').addEventListener('change', updateInventoryControls);

@@ -1,7 +1,8 @@
-WellOne Admin v82
+WellOne Admin v83 — fixed/optimized
 - Separate deployment; index.html is at ZIP root.
-- Employees is visible in the main Admin navigation and as a Products-page shortcut.
-- Create/edit/disable employee username/password accounts here.
-- Product editor supports exact Colour + Size stock. Quick add: Blue + 5,6,7,8.
-- Existing variant IDs are preserved during edits to reduce stale selections and improve sync safety.
-- Run supabase/09_realtime_exact_variant_sync.sql after the v80/v81 database migration.
+- Employees is a normal Admin menu section only; it is not shown as a shortcut on the Products home screen.
+- Employee list is directly below the Add/Edit Employee form.
+- Passwords remain hashed in Supabase. Passwords created/reset from this Admin browser are remembered locally and displayed in the list.
+- Product editor keeps exact colour + size stock combinations and preserves existing variant IDs where possible.
+- v83 uses a fresh service-worker/cache namespace and stable static-asset caching.
+- No new database migration is required for this v83 performance/fix pass.

@@ -15,7 +15,7 @@
       }catch(_error){}
     })();
   </script>
-<link href="css/admin.css?v=82" rel="stylesheet"/>
+<link href="css/admin.css?v=83" rel="stylesheet"/>
 <link href="./assets/favicon/favicon.ico" rel="icon" type="image/x-icon"/>
 <link href="./assets/favicon/apple-icon-180x180.png" rel="apple-touch-icon"/>
 <link href="manifest.webmanifest" rel="manifest"/>
@@ -28,11 +28,11 @@
 </head>
 <body>
 <div aria-hidden="true" class="app-launch-splash" id="pwaLaunchSplash">
-<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=82" width="1100"/>
+<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=83" width="1100"/>
 </div>
 <section class="login-screen" id="loginScreen">
 <form class="login-card" id="loginForm">
-<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=82" width="1100"/>
+<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=83" width="1100"/>
 <p class="tag">secure admin</p>
 <h1>Admin</h1>
 <input autocomplete="username" id="adminEmailInput" placeholder="Admin email" required="" type="email"/>
@@ -43,7 +43,7 @@
 </section>
 <div class="admin-shell is-locked" id="adminShell">
 <header class="admin-head">
-<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=82" width="1100"/></a>
+<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=83" width="1100"/></a>
 <button class="menu-toggle" id="menuToggle" type="button">☰</button>
 <nav class="admin-menu" id="adminMenu">
 <button class="active" data-view="products" type="button">Products</button>
@@ -51,7 +51,7 @@
 <button data-view="categories" type="button">Categories</button>
 <button data-view="offers" type="button">Offers</button>
 
-<button data-view="employees" type="button">👥 Employees</button>
+<button data-view="employees" type="button">Employees</button>
 
 <button id="logoutBtn" type="button">Logout</button>
 </nav>
@@ -61,7 +61,7 @@
 <section class="view-panel active clean-card" id="viewProducts">
 <div class="panel-head">
 <div><p class="tag">products</p><h1>Product list</h1></div>
-<div class="panel-actions"><button class="ghost-btn employees-shortcut" id="openEmployeesBtn" type="button">👥 Employees</button><button class="submit-small" id="newProductBtn" type="button">+ Add product</button></div>
+<div class="panel-actions"><button class="submit-small" id="newProductBtn" type="button">+ Add product</button></div>
 </div>
 <div class="list-controls">
 <select id="productCategoryFilter"></select>
@@ -190,7 +190,7 @@
 <div class="field-row two"><label>Username<input autocomplete="off" id="employeeUsername" placeholder="employee1" required=""/></label><label>Password <small class="optional">Leave blank when editing to keep current password</small><input autocomplete="new-password" id="employeePassword" placeholder="Create password" type="password"/></label></div>
 <div class="save-row"><button class="ghost-btn" id="employeeResetBtn" type="button">Reset</button><button class="submit-btn" type="submit">Save Employee</button></div>
 </form>
-<div class="employee-list" id="employeeList"><div class="empty">No employees loaded.</div></div>
+<div class="employee-list-head"><h2>Employee list</h2><p>Usernames and the passwords set from this admin browser are shown below.</p></div><div class="employee-list" id="employeeList"><div class="empty">No employees loaded.</div></div>
 </section>
 <section class="view-panel clean-card" id="viewOffers">
 <div class="panel-head"><div><p class="tag">promotions</p><h1>Offers</h1><p>Manage promotional products and independent sliding banners from one place.</p></div></div>
@@ -240,7 +240,7 @@
 </div>
 <div class="busy-overlay" id="busy"><div><b></b><span id="busyText">Working...</span></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/admin.bundle.js?v=82"></script>
-<script src="js/pwa-install.js?v=82"></script>
+<script src="js/admin.bundle.js?v=83"></script>
+<script src="js/pwa-install.js?v=83"></script>
 </body>
 </html>
