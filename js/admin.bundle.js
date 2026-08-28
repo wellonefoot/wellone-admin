@@ -1,11 +1,4 @@
-/* bundled from admin-config.js */
-const ADMIN_CONFIG = {
-  supabaseUrl: 'https://wnavzhrkwgnegjdetdno.supabase.co',
-  supabaseAnonKey: 'sb_publishable_RbnMrDlHfEijBiejcRNPUg_mop2bqgM',
-  storageBucket: 'product-images'
-};
-
-/* bundled from admin.js */
+/* WellOne Admin v94 — application code. Supabase config is loaded separately from admin-config.js. */
 'use strict';
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').trim().replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
@@ -319,16 +312,19 @@ async function ensureVariantAvailabilityReady(){
   if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql and then 08_orders_employees_variants.sql in Supabase first.');
   throw error;
 }
-async function validateLogin(email, password){
-  if(!email || !password) throw new Error('Enter admin email and password');
-  const {error} = await supabaseClient().auth.signInWithPassword({email, password});
-  if(error) throw error;
-  authorizedAdminUser = null;
+async function openAdminApp(){
   await requireAdmin();
   $('loginScreen').style.display = 'none';
   $('adminShell').classList.remove('is-locked');
   ensureCustomerUpdateChannel();
   await Promise.all([refreshMeta(), loadProducts(true)]);
+}
+async function validateLogin(email, password){
+  if(!email || !password) throw new Error('Enter admin email and password');
+  const {error} = await supabaseClient().auth.signInWithPassword({email, password});
+  if(error) throw error;
+  authorizedAdminUser = null;
+  await openAdminApp();
 }
 async function refreshMeta(){
   await requireAdmin();
@@ -1277,12 +1273,27 @@ function bindEvents(){
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
   });
 }
-function bootstrapAdmin(){
+async function restoreAdminSession(){
+  try{
+    const {data,error}=await supabaseClient().auth.getSession();
+    if(error) throw error;
+    if(data?.session){
+      authorizedAdminUser=null;
+      await openAdminApp();
+      $('loginError').textContent='';
+      return;
+    }
+  }catch(_error){
+    authorizedAdminUser=null;
+  }
+  await lockAdmin({signOut:false});
+}
+async function bootstrapAdmin(){
   bindEvents();
   renderVariantRows([]);
   updateInventoryControls();
   resetOfferItem();
   setupAdminProductAutoLoader();
-  lockAdmin({signOut:false});
+  await restoreAdminSession();
 }
-bootstrapAdmin();
+bootstrapAdmin().catch(()=>lockAdmin({signOut:false}));

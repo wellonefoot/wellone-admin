@@ -1,0 +1,13 @@
+WellOne Admin v94
+
+Scope intentionally limited to login/connection and safe caching optimization.
+
+- Uses the same direct Supabase authentication pattern as the confirmed-working Order Receiving v93 build.
+- Supabase configuration moved to js/admin-config.js and loaded before the existing admin bundle.
+- Existing admin UI, labels, forms, products, categories, offers, employees and order content were not redesigned or removed.
+- Restores a valid admin session on reload instead of always forcing the login screen.
+- Admin authorization still checks the existing admin_users table.
+- Service worker never caches authenticated Supabase API responses and uses network-first for app code/navigation.
+- Existing image runtime cache remains for performance.
+- Old wellone-admin service-worker caches are removed on activation.
+- No SQL change is required for this login/cache-only update.

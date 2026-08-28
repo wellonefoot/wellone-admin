@@ -1,13 +1,65 @@
 'use strict';
-const CACHE_VERSION='wellone-admin-v88-20page-live';
-const STATIC_CACHE=`${CACHE_VERSION}-static`;
+const CACHE_VERSION='wellone-admin-v94-working-auth';
+const SHELL_CACHE=`${CACHE_VERSION}-shell`;
+const RUNTIME_CACHE=`${CACHE_VERSION}-runtime`;
 const IMAGE_CACHE=`${CACHE_VERSION}-images`;
-const STATIC_FILES=['./css/admin.css?v=88', './js/admin.bundle.js?v=88', './js/pwa-install.js?v=88', './manifest.webmanifest', './assets/logo.png?v=88'];
-self.addEventListener('install',event=>event.waitUntil((async()=>{const c=await caches.open(STATIC_CACHE);await Promise.allSettled(STATIC_FILES.map(f=>c.add(f)));await self.skipWaiting();})()));
-self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('wellone-admin-')&&!k.startsWith(CACHE_VERSION)).map(k=>caches.delete(k)));await self.clients.claim();})()));
-function urlOf(r){try{return new URL(r.url);}catch(_e){return null;}}
-function isSupabase(u){return Boolean(u&&u.hostname.endsWith('.supabase.co'));}
-function publicStorage(u){return isSupabase(u)&&u.pathname.includes('/storage/v1/object/public/');}
-async function networkFirst(r){const c=await caches.open(STATIC_CACHE);try{const res=await fetch(r,{cache:'no-cache'});if(res&&(res.ok||res.type==='opaque'))c.put(r,res.clone()).catch(()=>{});return res;}catch(error){const hit=await c.match(r);if(hit)return hit;throw error;}}
-async function imageCache(r){const c=await caches.open(IMAGE_CACHE);const hit=await c.match(r);if(hit)return hit;const res=await fetch(r);if(res&&(res.ok||res.type==='opaque')){c.put(r,res.clone()).catch(()=>{});c.keys().then(keys=>{if(keys.length>180)Promise.all(keys.slice(0,keys.length-180).map(k=>c.delete(k))).catch(()=>{});}).catch(()=>{});}return res;}
-self.addEventListener('fetch',event=>{const r=event.request;if(r.method!=='GET')return;if(r.mode==='navigate'||r.destination==='document')return;const u=urlOf(r);if(!u)return;if(isSupabase(u)&&!publicStorage(u))return;const same=u.origin===self.location.origin;const code=same&&['script','style','font','manifest'].includes(r.destination);const cdn=u.hostname==='cdn.jsdelivr.net'&&r.destination==='script';const image=r.destination==='image'||publicStorage(u);if(code||cdn){event.respondWith(networkFirst(r));return;}if(image)event.respondWith(imageCache(r));});
+const SHELL_ASSETS=[
+  './','./index.html','./css/admin.css?v=88','./js/admin-config.js?v=94','./js/admin.bundle.js?v=94','./js/pwa-install.js?v=94',
+  './manifest.webmanifest','./assets/logo.png?v=88','./assets/favicon/favicon.ico'
+];
+self.addEventListener('install',event=>{
+  event.waitUntil(caches.open(SHELL_CACHE).then(cache=>Promise.allSettled(SHELL_ASSETS.map(x=>cache.add(x)))).then(()=>self.skipWaiting()));
+});
+self.addEventListener('activate',event=>{
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('wellone-admin-')&&!k.startsWith(CACHE_VERSION)).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
+});
+function urlOf(request){try{return new URL(request.url);}catch(_e){return null;}}
+function isSupabaseRequest(request){const u=urlOf(request);return Boolean(u&&u.hostname.endsWith('.supabase.co'));}
+function isPublicStorage(request){const u=urlOf(request);return Boolean(u&&u.hostname.endsWith('.supabase.co')&&u.pathname.includes('/storage/v1/object/public/'));}
+async function networkFirst(request,fallback){
+  const cache=await caches.open(RUNTIME_CACHE);
+  try{
+    const response=await fetch(request,{cache:'no-store'});
+    if(response&&response.ok)cache.put(request,response.clone()).catch(()=>{});
+    return response;
+  }catch(error){
+    const hit=await cache.match(request);
+    if(hit)return hit;
+    if(fallback){const fb=await caches.match(fallback);if(fb)return fb;}
+    throw error;
+  }
+}
+async function imageCache(request){
+  const cache=await caches.open(IMAGE_CACHE);
+  const hit=await cache.match(request);
+  if(hit)return hit;
+  const response=await fetch(request,{cache:'no-cache'});
+  if(response&&(response.ok||response.type==='opaque')){
+    cache.put(request,response.clone()).catch(()=>{});
+    cache.keys().then(keys=>{if(keys.length>180)Promise.all(keys.slice(0,keys.length-180).map(k=>cache.delete(k))).catch(()=>{});}).catch(()=>{});
+  }
+  return response;
+}
+self.addEventListener('fetch',event=>{
+  const request=event.request;
+  // Supabase auth/database/storage API traffic always goes directly to the network.
+  // Do not cache or proxy authenticated responses.
+  if(isSupabaseRequest(request)&&!isPublicStorage(request)){
+    event.respondWith(fetch(request,{cache:'no-store'}));
+    return;
+  }
+  if(request.method!=='GET')return;
+  const url=urlOf(request);
+  if(!url)return;
+  if(request.mode==='navigate'){
+    event.respondWith(networkFirst(request,'./index.html'));
+    return;
+  }
+  if(request.destination==='image'||isPublicStorage(request)){
+    event.respondWith(imageCache(request));
+    return;
+  }
+  if(url.origin===self.location.origin&&['script','style','manifest'].includes(request.destination)){
+    event.respondWith(networkFirst(request));
+  }
+});
