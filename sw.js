@@ -1,16 +1,13 @@
 'use strict';
-const CACHE_VERSION='wellone-admin-v83-stable';
-const SHELL_CACHE=`${CACHE_VERSION}-shell`;
-const RUNTIME_CACHE=`${CACHE_VERSION}-runtime`;
-const SHELL=['./','./index.html','./css/admin.css?v=83','./js/admin.bundle.js?v=83','./js/pwa-install.js?v=83','./manifest.webmanifest','./assets/logo.png?v=83','./assets/favicon/favicon.ico'];
-self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(SHELL_CACHE);await Promise.allSettled(SHELL.map(url=>cache.add(url)));await self.skipWaiting();})()));
-self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(key=>key.startsWith('wellone-admin-')&&!key.startsWith(CACHE_VERSION)).map(key=>caches.delete(key)));await self.clients.claim();})()));
-function u(request){try{return new URL(request.url)}catch(_e){return null}}
-function storage(url){return !!url&&url.pathname.includes('/storage/v1/object/public/')}
-function supabaseApi(url){return !!url&&url.hostname.endsWith('.supabase.co')&&!storage(url)}
-async function trim(name,max=120){const cache=await caches.open(name),keys=await cache.keys();if(keys.length>max)await Promise.all(keys.slice(0,keys.length-max).map(k=>cache.delete(k)));}
-async function put(request,response){if(response&&(response.ok||response.type==='opaque')){const cache=await caches.open(RUNTIME_CACHE);await cache.put(request,response.clone()).catch(()=>{});trim(RUNTIME_CACHE).catch(()=>{});}}
-async function cacheFirst(request){const cached=await caches.match(request);if(cached)return cached;const response=await fetch(request);put(request,response).catch(()=>{});return response;}
-async function stale(request){const cached=await caches.match(request);const network=fetch(request).then(r=>{put(request,r).catch(()=>{});return r;}).catch(()=>null);if(cached){network.catch(()=>{});return cached;}const response=await network;if(response)return response;throw new Error('Network unavailable');}
-async function navigate(request){const url=u(request);url.search='';url.hash='';const canonical=new Request(url.href,{headers:{Accept:'text/html'}});const cached=(await caches.match(canonical))||(await caches.match('./index.html'));if(cached){fetch(request,{cache:'no-cache'}).then(r=>{if(r&&r.ok)caches.open(SHELL_CACHE).then(c=>c.put(canonical,r.clone())).catch(()=>{});}).catch(()=>{});return cached;}try{const r=await fetch(request,{cache:'no-cache'});if(r&&r.ok)caches.open(SHELL_CACHE).then(c=>c.put(canonical,r.clone())).catch(()=>{});return r;}catch(_e){return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><p style="font-family:system-ui;padding:24px">Connection unavailable. Please try again.</p>',{status:503,headers:{'Content-Type':'text/html'}});}}
-self.addEventListener('fetch',event=>{const request=event.request;if(request.method!=='GET')return;const url=u(request);if(!url)return;if(request.mode==='navigate'){event.respondWith(navigate(request));return;}if(supabaseApi(url)){event.respondWith(fetch(request,{cache:'no-store'}));return;}const same=url.origin===self.location.origin;const versioned=same&&/(?:\?|&)v=83(?:&|$)/.test(url.search);const staticAsset=same&&['script','style','manifest','font'].includes(request.destination);const image=request.destination==='image'||storage(url);if(versioned||staticAsset||url.hostname==='cdn.jsdelivr.net'){event.respondWith(cacheFirst(request));return;}if(image||same)event.respondWith(stale(request));});
+const CACHE_VERSION='wellone-admin-v85-safe-assets';
+const STATIC_CACHE=`${CACHE_VERSION}-static`;
+const IMAGE_CACHE=`${CACHE_VERSION}-images`;
+const STATIC_FILES=['./css/admin.css?v=85','./js/admin.bundle.js?v=85','./js/pwa-install.js?v=85','./manifest.webmanifest','./assets/logo.png?v=85','./assets/favicon/favicon.ico'];
+self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(STATIC_CACHE);await Promise.allSettled(STATIC_FILES.map(f=>cache.add(f)));await self.skipWaiting();})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('wellone-admin-')&&!k.startsWith(CACHE_VERSION)).map(k=>caches.delete(k)));await self.clients.claim();})()));
+function u(r){try{return new URL(r.url);}catch(_e){return null;}}
+function supabase(url){return Boolean(url&&url.hostname.endsWith('.supabase.co'));}
+function publicStorage(url){return supabase(url)&&url.pathname.includes('/storage/v1/object/public/');}
+async function cacheFirst(r){const c=await caches.open(STATIC_CACHE);const hit=await c.match(r);if(hit)return hit;const res=await fetch(r);if(res&&(res.ok||res.type==='opaque'))c.put(r,res.clone()).catch(()=>{});return res;}
+async function imageCache(r){const c=await caches.open(IMAGE_CACHE);const hit=await c.match(r);if(hit)return hit;const res=await fetch(r);if(res&&(res.ok||res.type==='opaque'))c.put(r,res.clone()).catch(()=>{});return res;}
+self.addEventListener('fetch',event=>{const r=event.request;if(r.method!=='GET')return;if(r.mode==='navigate'||r.destination==='document')return;const url=u(r);if(!url)return;if(supabase(url)&&!publicStorage(url))return;const same=url.origin===self.location.origin;const versioned=same&&/(?:\?|&)v=85(?:&|$)/.test(url.search);const staticAsset=same&&['script','style','font','manifest'].includes(r.destination);const image=r.destination==='image'||publicStorage(url);if(versioned||staticAsset||(url.hostname==='cdn.jsdelivr.net'&&r.destination==='script')){event.respondWith(cacheFirst(r));return;}if(image)event.respondWith(imageCache(r));});

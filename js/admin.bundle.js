@@ -486,15 +486,18 @@ function clearProductImages(){ currentImages = []; newImageFiles = []; $('photoI
 function resetProduct(){
   editingProductId = '';
   productSaveInProgress = false;
-  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; if($('productStockQuantity')) $('productStockQuantity').value = '0'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false); updateInventoryControls();
+  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; if($('productStockQuantity')) $('productStockQuantity').value = '0'; if($('variantSetupMode')) $('variantSetupMode').value='simple'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false); updateInventoryControls();
   $('formTitle').textContent = 'Add product'; $('saveBtn').textContent = 'Save Product'; $('deleteBtn').style.display = 'none'; $('cancelEditBtn').classList.add('hide'); switchView('add');
 }
 function renderVariantRows(list = []){
   const rows = Array.isArray(list) ? list : [];
   $('variantList').innerHTML = rows.length
     ? rows.map((v,i)=>variantRowHtml(v || {},i)).join('')
-    : '<div class="empty variant-empty"><b>No separate variants added.</b><span>Add each colour + size combination separately when it needs its own stock count.</span></div>';
+    : '<div class="empty variant-empty"><b>No separate options added.</b><span>Keep this as a simple product, or choose an option setup above.</span></div>';
   $('variantList').querySelectorAll('.variant-row').forEach(initializeVariantRow);
+  if($('variantSetupMode')) $('variantSetupMode').value = rows.length ? (rows.some(v=>clean(v.color || v.unit)) ? 'color_option' : 'option') : 'simple';
+  updateVariantModeUI();
+  renderVariantGroupControls();
 }
 function variantRowHtml(v,i){
   const color = clean(v.color || v.unit || '');
@@ -503,10 +506,10 @@ function variantRowHtml(v,i){
   return `<article class="variant-row" data-variant-id="${esc(v.id || '')}" data-variant-index="${i}" data-existing-images='${esc(JSON.stringify(v.images || []))}' data-existing-paths='${esc(JSON.stringify(v.storagePaths || []))}'>
     <div class="variant-title"><b>${esc([color,size].filter(Boolean).join(' · ') || `Variant ${i+1}`)}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
     <div class="field-row variant-dimensions-row">
-      <label>Colour <small class="optional">Optional</small><input class="variant-color" value="${esc(color)}" placeholder="Black / White / Gold"></label>
-      <label>Size / option <small class="optional">Optional</small><input class="variant-size" value="${esc(size)}" placeholder="8 / 9 / Large / 500ml"></label>
+      <label class="variant-color-field">Colour <small class="optional">Optional</small><input class="variant-color" value="${esc(color)}" placeholder="Black / White / Gold"></label>
+      <label><span class="variant-option-name">Size / option</span><input class="variant-size" value="${esc(size)}" placeholder="8 / 9 / Large / 500ml"></label>
     </div>
-    <small class="variant-combination-help">Use one row per exact combination. Example: Black + 8, Black + 9, White + 8.</small>
+    <small class="variant-combination-help">This exact choice has independent stock, availability, price and optional images.</small>
     <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label><label class="variant-quantity-wrap">Available quantity<input class="variant-quantity" type="number" min="0" step="1" inputmode="numeric" value="${esc(Math.max(0, Number(v.stockQuantity ?? v.stock ?? 0) || 0))}" placeholder="0"></label><label>MRP optional<input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Empty = main MRP"></label></div>
     <label>Final price optional<input class="variant-price" inputmode="numeric" value="${esc(v.price || '')}" placeholder="Empty = main price"></label>
     <label class="fake-label">Separate images optional<small class="hint inline-hint">Leave empty to use the main product images.</small></label>
@@ -526,6 +529,62 @@ function updateVariantRowTitle(row){
   const size = clean(row.querySelector('.variant-size')?.value);
   const title = row.querySelector('.variant-title b');
   if(title) title.textContent = [color,size].filter(Boolean).join(' · ') || `Variant ${index}`;
+}
+function inferredVariantMode(){
+  const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
+  if(!rows.length)return 'simple';
+  return rows.some(row=>clean(row.querySelector('.variant-color')?.value))?'color_option':'option';
+}
+function variantOptionLabel(){
+  return clean($('optionTitle')?.value) || 'Size / option';
+}
+function updateVariantModeUI(){
+  const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
+  const colorMode=mode==='color_option';
+  const simple=mode==='simple';
+  $('variantBulkColorWrap')?.classList.toggle('hide',!colorMode);
+  document.querySelectorAll('.variant-color-field').forEach(field=>field.classList.toggle('hide',!colorMode));
+  document.querySelectorAll('.variant-option-name').forEach(label=>label.textContent=variantOptionLabel());
+  if($('variantBulkOptionLabel')) $('variantBulkOptionLabel').textContent=colorMode?`${variantOptionLabel()}s for this colour`:`${variantOptionLabel()} values`;
+  if($('variantBulkSizes')) $('variantBulkSizes').placeholder=colorMode?'5, 6, 7, 8':'100ml, 250ml, 500ml';
+  if($('variantModeHelp')) $('variantModeHelp').textContent=simple?'No selectable options. Use the main price, images and stock.':colorMode?'Customers choose colour first, then an available option inside that colour.':'Use this for size-only, ml, litre, weight, pack, measurement or any custom option.';
+  if($('variantBulkHelp')) $('variantBulkHelp').textContent=colorMode?'Creates one exact stock row per colour + option. Each row remains independently editable.':'Creates one exact stock row per option. Each ml, size, pack or measurement remains independently editable.';
+  $('variantBulkColor')?.toggleAttribute('required',colorMode);
+  $('variantBulkColor')?.closest('label')?.classList.toggle('hide',!colorMode);
+  $('variantList')?.classList.toggle('is-simple-mode',simple);
+  renderVariantGroupControls();
+}
+function handleVariantModeChange(){
+  const mode=clean($('variantSetupMode')?.value || 'simple');
+  const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
+  if(mode==='simple' && rows.length){
+    if(!confirm('Switch to a simple product and remove the option rows from this form?')){ $('variantSetupMode').value=inferredVariantMode(); updateVariantModeUI(); return; }
+    renderVariantRows([]);
+    return;
+  }
+  if(mode==='option'){
+    const withColor=rows.filter(row=>clean(row.querySelector('.variant-color')?.value));
+    if(withColor.length && !confirm('Remove colour names and keep these as option-only rows?')){ $('variantSetupMode').value='color_option'; updateVariantModeUI(); return; }
+    withColor.forEach(row=>{ row.querySelector('.variant-color').value=''; updateVariantRowTitle(row); });
+  }
+  updateVariantModeUI();
+  updateInventoryControls();
+}
+function renderVariantGroupControls(){
+  const holder=$('variantGroupControls'); if(!holder)return;
+  const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
+  const groups=new Map();
+  rows.forEach(row=>{const color=clean(row.querySelector('.variant-color')?.value);if(!color)return;const groupKey=key(color);if(!groups.has(groupKey))groups.set(groupKey,{color,rows:[]});groups.get(groupKey).rows.push(row);});
+  holder.innerHTML=groups.size?`<div class="variant-group-title"><b>Colour availability</b><small>Turn a complete colour on or off without editing every option.</small></div>${Array.from(groups.values()).map(group=>{const available=group.rows.some(row=>effectiveVariantStatus(row)==='in_stock');const total=group.rows.reduce((sum,row)=>sum+nonNegativeInt(row.querySelector('.variant-quantity')?.value),0);return `<label class="variant-group-control"><span><b>${esc(group.color)}</b><small>${group.rows.length} option${group.rows.length===1?'':'s'} · ${total} unit${total===1?'':'s'}</small></span><select data-variant-group-status="${esc(group.color)}"><option value="in_stock" ${available?'selected':''}>Colour available</option><option value="out_of_stock" ${available?'':'selected'}>Colour unavailable</option></select></label>`;}).join('')}`:'';
+}
+function setVariantGroupStatus(color,status){
+  const target=key(color);
+  $('variantList')?.querySelectorAll('.variant-row').forEach(row=>{
+    if(key(row.querySelector('.variant-color')?.value)!==target)return;
+    const select=row.querySelector('.variant-availability');
+    if(select)select.value=status==='out_of_stock'?'out_of_stock':'in_stock';
+  });
+  updateInventoryControls();
 }
 function renumberVariantRows(){
   $('variantList').querySelectorAll('.variant-row').forEach((row,index)=>{ row.dataset.variantIndex=String(index); updateVariantRowTitle(row); });
@@ -558,9 +617,10 @@ function updateInventoryControls(){
     productQty.disabled = !track || hasVariants;
     if(track && hasVariants) productQty.value = String(rows.reduce((sum,row)=>sum + nonNegativeInt(row.querySelector('.variant-quantity')?.value), 0));
   }
+  renderVariantGroupControls();
   $('productStockWrap')?.classList.toggle('is-disabled', !track);
   const hint = $('stockQuantityHint');
-  if(hint) hint.textContent = hasVariants ? 'Calculated automatically from all colour + size variant quantities.' : 'Enter the available quantity for this product.';
+  if(hint) hint.textContent = hasVariants ? 'Calculated automatically from all exact option quantities.' : 'Enter the available quantity for this product.';
   const summary = $('inventorySummary');
   if(summary){
     if(!track) summary.textContent = 'Stock tracking is off. Availability is controlled manually.';
@@ -597,9 +657,13 @@ function collectVariantRows(){
   })).filter(v => v.color || v.size || v.mrp || v.price || v.existingImages.length || v.files.length);
 }
 function validateVariantRows(rows){
+  const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
+  if(mode==='simple'&&rows.length) throw new Error('Simple products cannot contain separate option rows. Choose an option setup first.');
   const used=new Set();
   for(const item of rows){
     if(!item.color && !item.size) throw new Error('Enter a colour, size / option, or both for every variant.');
+    if(mode==='color_option'&&!item.color) throw new Error('Enter a colour for every colour + option row.');
+    if(mode==='option'&&item.color) throw new Error('Option-only products cannot contain colour values. Choose Colour + option instead.');
     const duplicateKey=`${key(item.color || 'default')}::${key(item.size || 'standard')}`;
     if(used.has(duplicateKey)) throw new Error(`Duplicate variant: ${item.color || 'Default'} ${item.size || 'Standard'}`);
     used.add(duplicateKey);
@@ -626,30 +690,34 @@ async function collectVariantsPayload(rows, uploadedPaths = []){
   return variants;
 }
 function appendVariantRow(data = {}){
+  if($('variantSetupMode')?.value==='simple') $('variantSetupMode').value=clean(data.color)?'color_option':'option';
   const list = $('variantList');
   list.querySelector('.variant-empty')?.remove();
   const index = list.querySelectorAll('.variant-row').length;
   list.insertAdjacentHTML('beforeend', variantRowHtml(data, index));
   initializeVariantRow(list.lastElementChild);
+  updateVariantModeUI();
 }
 function quickAddColourSizes(){
+  const mode=clean($('variantSetupMode')?.value || 'color_option');
   const color=clean($('variantBulkColor')?.value);
   const sizes=String($('variantBulkSizes')?.value || '').split(/[,\n|]+/).map(clean).filter(Boolean);
   const qty=nonNegativeInt($('variantBulkQty')?.value);
-  if(!color){ setStatus('Enter a colour first, for example Blue.','error'); $('variantBulkColor')?.focus(); return; }
-  if(!sizes.length){ setStatus('Enter one or more sizes, for example 5, 6, 7, 8.','error'); $('variantBulkSizes')?.focus(); return; }
+  if(mode==='simple'){ setStatus('Choose an option setup first.','error'); $('variantSetupMode')?.focus(); return; }
+  if(mode==='color_option'&&!color){ setStatus('Enter a colour first, for example Blue.','error'); $('variantBulkColor')?.focus(); return; }
+  if(!sizes.length){ setStatus(`Enter one or more ${variantOptionLabel().toLowerCase()} values.`,'error'); $('variantBulkSizes')?.focus(); return; }
   const existing=new Set(Array.from($('variantList').querySelectorAll('.variant-row')).map(row=>`${key(row.querySelector('.variant-color')?.value || 'default')}::${key(row.querySelector('.variant-size')?.value || 'standard')}`));
   let added=0, skipped=0;
   sizes.forEach(size=>{
-    const combo=`${key(color)}::${key(size)}`;
+    const combo=`${key(color || 'default')}::${key(size)}`;
     if(existing.has(combo)){ skipped+=1; return; }
     existing.add(combo);
     appendVariantRow({color,size,stockQuantity:qty,stockStatus:qty>0?'in_stock':'out_of_stock',mrp:'',price:'',images:[],storagePaths:[],terms:[]});
     added+=1;
   });
   updateInventoryControls();
-  if(added){ $('variantBulkSizes').value=''; setStatus(`${color}: added ${added} size${added===1?'':'s'}${skipped?` · ${skipped} duplicate${skipped===1?'':'s'} skipped`:''}. Set each size quantity below.`, 'ok'); }
-  else setStatus('Those colour + size combinations already exist.','error');
+  if(added){ $('variantBulkSizes').value=''; setStatus(`${color?color+': ':''}added ${added} option${added===1?'':'s'}${skipped?` · ${skipped} duplicate${skipped===1?'':'s'} skipped`:''}. Set each quantity below.`, 'ok'); }
+  else setStatus('Those exact options already exist.','error');
 }
 function readVariantRowData(row){
   const color=clean(row.querySelector('.variant-color')?.value);
@@ -1029,6 +1097,8 @@ function bindEvents(){
   $('newProductBtn').addEventListener('click', resetProduct);
   $('addColourSizesBtn')?.addEventListener('click',quickAddColourSizes);
   $('variantBulkSizes')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();quickAddColourSizes();}});
+  $('variantSetupMode')?.addEventListener('change',handleVariantModeChange);
+  $('optionTitle')?.addEventListener('input',updateVariantModeUI);
   $('barcodeEnabled').addEventListener('change', updateInventoryControls);
   $('trackInventory').addEventListener('change', updateInventoryControls);
   $('productStockQuantity').addEventListener('input', updateInventoryControls);
@@ -1062,10 +1132,6 @@ function bindEvents(){
   $('orderSearchInput')?.addEventListener('input',renderAdminOrders);
   $('employeeForm')?.addEventListener('submit',saveEmployee);
   $('employeeResetBtn')?.addEventListener('click',resetEmployeeForm);
-  $('barcodeLookupForm').addEventListener('submit', e => {
-    e.preventDefault();
-    checkManualBarcode($('barcodeLookupInput').value);
-  });
   document.addEventListener('click', e => {
     const subcategoryOption = e.target.closest('[data-subcategory-option]');
     if(subcategoryOption){ chooseProductSubcategory(subcategoryOption.dataset.subcategoryOption); return; }
@@ -1083,13 +1149,14 @@ function bindEvents(){
     const newImage = e.target.closest('[data-remove-variant-new]'); if(newImage){ const row=newImage.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.splice(Number(newImage.dataset.removeVariantNew || 0),1); renderVariantImages(row); } }
   });
   document.addEventListener('change', e => {
+    if(e.target.matches('[data-variant-group-status]')){setVariantGroupStatus(e.target.dataset.variantGroupStatus,e.target.value);return;}
     if(e.target.matches('[data-admin-order-status]')){changeAdminOrderStatus(e.target.dataset.adminOrderStatus,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.matches('[data-admin-order-payment]')){changeAdminPayment(e.target.dataset.adminOrderPayment,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.classList.contains('variant-availability')) updateInventoryControls();
     if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.push(...Array.from(e.target.files || [])); e.target.value=''; renderVariantImages(row); } }
   });
   document.addEventListener('input', e => {
-    if(e.target.classList.contains('variant-color') || e.target.classList.contains('variant-size')) updateVariantRowTitle(e.target.closest('.variant-row'));
+    if(e.target.classList.contains('variant-color') || e.target.classList.contains('variant-size')){updateVariantRowTitle(e.target.closest('.variant-row'));renderVariantGroupControls();}
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
   });
 }
