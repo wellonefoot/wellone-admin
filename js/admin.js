@@ -41,7 +41,7 @@ const PRODUCT_SELECT = `
   categories(id,name,image_url,storage_path,description),
   subcategories(id,name),
   product_images(id,image_url,storage_path,sort_order),
-  product_variants(id,label,mrp,price,image_url,image_urls,storage_paths,terms,unit,stock,stock_status,sort_order)
+  product_variants(id,label,color,size,mrp,price,image_url,image_urls,storage_paths,terms,unit,stock,stock_status,sort_order)
 `;
 const PRODUCT_LIST_SELECT = `
   id,name,slug,description,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
@@ -55,6 +55,10 @@ let subcategories = [];
 let terms = FIXED_PRODUCT_TERMS.map(term => ({...term}));
 let offers = [];
 let offerItems = [];
+let adminOrders = [];
+let adminEmployees = [];
+let orderRealtimeChannel = null;
+let orderReloadTimer = null;
 let currentProducts = [];
 let currentProductOffset = 0;
 let nextProductOffset = null;
@@ -111,7 +115,19 @@ function ensureCustomerUpdateChannel(){
     };
     let channel;
     try{
-      channel = supabaseClient().channel(STORE_CHANNEL_NAME, {config:{broadcast:{self:false, ack:true}}});
+      channel = supabaseClient().channel(STORE_CHANNEL_NAME, {config:{broadcast:{self:false, ack:true}}})
+        .on('broadcast',{event:STORE_EVENT_NAME},({payload})=>{
+          const tables=Array.isArray(payload?.tables)?payload.tables:[];
+          const productChanged=tables.some(table=>['products','product_variants','offer_items'].includes(table));
+          if(productChanged && $('viewProducts')?.classList.contains('active')){
+            clearTimeout(window.__adminStoreRefreshTimer);
+            window.__adminStoreRefreshTimer=setTimeout(()=>loadProducts(true).catch(err=>setStatus(err.message,'error')),140);
+          }
+          if(tables.includes('orders') && $('viewOrders')?.classList.contains('active')){
+            clearTimeout(orderReloadTimer);
+            orderReloadTimer=setTimeout(()=>loadAdminOrders().catch(err=>setStatus(err.message,'error')),140);
+          }
+        });
       customerUpdateChannel = channel;
       channel.subscribe(status => {
         if(channel !== customerUpdateChannel) return;
@@ -211,7 +227,7 @@ function normalizeProduct(row){
     variants: variants.map(v => {
       const urls = splitList(v.image_urls || v.image_url || []);
       const paths = splitList(v.storage_paths || []);
-      return {id:v.id, label:clean(v.label || ''), mrp:price(v.mrp) || '', price:price(v.price) || '', unit:clean(v.unit || ''), images:urls, storagePaths:paths.length ? paths : urls.map(storagePathFromUrl).filter(Boolean), terms:splitList(v.terms || []), stockQuantity:Math.max(0, Number(v.stock || 0) || 0), stockStatus:clean(v.stock_status || 'in_stock')};
+      return {id:v.id, label:clean(v.label || ''), color:clean(v.color || v.unit || ''), size:clean(v.size || v.label || ''), mrp:price(v.mrp) || '', price:price(v.price) || '', unit:clean(v.unit || ''), images:urls, storagePaths:paths.length ? paths : urls.map(storagePathFromUrl).filter(Boolean), terms:splitList(v.terms || []), stockQuantity:Math.max(0, Number(v.stock || 0) || 0), stockStatus:clean(v.stock_status || 'in_stock')};
     })
   };
 }
@@ -227,12 +243,13 @@ async function requireAdmin(){
 }
 async function ensureVariantAvailabilityReady(){
   const [variantRes, productRes] = await Promise.all([
-    supabaseClient().from('product_variants').select('stock_status,stock').limit(1),
+    supabaseClient().from('product_variants').select('stock_status,stock,color,size').limit(1),
     supabaseClient().from('products').select('barcode,barcode_enabled,track_inventory,stock_quantity').limit(1)
   ]);
   const error = variantRes.error || productRes.error;
   if(!error) return;
-  if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql in Supabase first.');
+  if(/color|size/i.test(error.message || '')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.');
+  if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql and then 08_orders_employees_variants.sql in Supabase first.');
   throw error;
 }
 async function validateLogin(email, password){
@@ -444,6 +461,7 @@ function switchView(view){
   if(panel) panel.classList.add('active');
   document.querySelectorAll('.admin-menu [data-view]').forEach(b=>b.classList.toggle('active', b.dataset.view === view));
   $('adminMenu').classList.remove('open');
+  if(view === 'employees') loadEmployees().catch(err=>setStatus(err.message,'error'));
 }
 function renderImagePreviews(){
   const baseExisting = currentImages.map((url,i)=>`<div class="preview-item"><img src="${esc(url)}"><button type="button" data-remove-existing-image="${i}">×</button></div>`).join('');
@@ -461,26 +479,20 @@ function renderVariantRows(list = []){
   const rows = Array.isArray(list) ? list : [];
   $('variantList').innerHTML = rows.length
     ? rows.map((v,i)=>variantRowHtml(v || {},i)).join('')
-    : '<div class="empty variant-empty"><b>No custom variants added.</b><span>Add only a size, option, or colour that needs its own price, images, or availability.</span></div>';
+    : '<div class="empty variant-empty"><b>No separate variants added.</b><span>Add each colour + size combination separately when it needs its own stock count.</span></div>';
   $('variantList').querySelectorAll('.variant-row').forEach(initializeVariantRow);
 }
-function variantKind(v = {}){
-  const explicit = clean(v.kind || v.variantKind || '');
-  if(explicit === 'color' || explicit === 'colour') return 'color';
-  return clean(v.unit || v.color || '') ? 'color' : 'option';
-}
 function variantRowHtml(v,i){
-  const kind = variantKind(v);
-  const value = kind === 'color' ? clean(v.unit || v.color || '') : clean(v.label || v.value || '');
-  const colourSizes = kind === 'color' ? clean(v.label || v.sizes || '') : '';
+  const color = clean(v.color || v.unit || '');
+  const size = clean(v.size || v.label || '');
   const imgs = (v.images || []).map((url,idx)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${idx}" aria-label="Remove image">×</button></div>`).join('');
   return `<article class="variant-row" data-variant-index="${i}" data-existing-images='${esc(JSON.stringify(v.images || []))}' data-existing-paths='${esc(JSON.stringify(v.storagePaths || []))}'>
-    <div class="variant-title"><b>Variant ${i+1}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
-    <div class="field-row variant-main-fields">
-      <label>Variant type<select class="variant-kind"><option value="option" ${kind === 'option' ? 'selected' : ''}>Size / option</option><option value="color" ${kind === 'color' ? 'selected' : ''}>Colour</option></select></label>
-      <label class="variant-value-label"><span class="variant-value-title">${kind === 'color' ? 'Colour name' : 'Size / option value'}</span><input class="variant-value" value="${esc(value)}" placeholder="${kind === 'color' ? 'Gold / Silver / Black' : '9 / 500ml / Large'}"></label>
+    <div class="variant-title"><b>${esc([color,size].filter(Boolean).join(' · ') || `Variant ${i+1}`)}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
+    <div class="field-row variant-dimensions-row">
+      <label>Colour <small class="optional">Optional</small><input class="variant-color" value="${esc(color)}" placeholder="Black / White / Gold"></label>
+      <label>Size / option <small class="optional">Optional</small><input class="variant-size" value="${esc(size)}" placeholder="8 / 9 / Large / 500ml"></label>
     </div>
-    <label class="variant-color-sizes ${kind === 'color' ? '' : 'hide'}">Sizes for this colour optional<input class="variant-sizes" value="${esc(colourSizes)}" placeholder="8, 9, 10 — empty uses main options"></label>
+    <small class="variant-combination-help">Use one row per exact combination. Example: Black + 8, Black + 9, White + 8.</small>
     <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label><label class="variant-quantity-wrap">Available quantity<input class="variant-quantity" type="number" min="0" step="1" inputmode="numeric" value="${esc(Math.max(0, Number(v.stockQuantity ?? v.stock ?? 0) || 0))}" placeholder="0"></label><label>MRP optional<input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Empty = main MRP"></label></div>
     <label>Final price optional<input class="variant-price" inputmode="numeric" value="${esc(v.price || '')}" placeholder="Empty = main price"></label>
     <label class="fake-label">Separate images optional<small class="hint inline-hint">Leave empty to use the main product images.</small></label>
@@ -490,33 +502,19 @@ function variantRowHtml(v,i){
 function initializeVariantRow(row){
   if(!row) return;
   row.__variantFiles = [];
-  updateVariantRowMode(row);
-  updateInventoryControls();
-}
-function updateVariantRowMode(row){
-  if(!row) return;
-  const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
-  const title = row.querySelector('.variant-value-title');
-  const input = row.querySelector('.variant-value');
-  const colourSizes = row.querySelector('.variant-color-sizes');
-  if(title) title.textContent = kind === 'color' ? 'Colour name' : (clean($('optionTitle')?.value) || 'Size / option') + ' value';
-  if(input) input.placeholder = kind === 'color' ? 'Gold / Silver / Black' : '9 / 500ml / Large';
-  colourSizes?.classList.toggle('hide', kind !== 'color');
   updateVariantRowTitle(row);
+  updateInventoryControls();
 }
 function updateVariantRowTitle(row){
   if(!row) return;
   const index = Number(row.dataset.variantIndex || 0) + 1;
-  const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
-  const value = clean(row.querySelector('.variant-value')?.value);
+  const color = clean(row.querySelector('.variant-color')?.value);
+  const size = clean(row.querySelector('.variant-size')?.value);
   const title = row.querySelector('.variant-title b');
-  if(title) title.textContent = value || `${kind === 'color' ? 'Colour' : 'Size / option'} ${index}`;
+  if(title) title.textContent = [color,size].filter(Boolean).join(' · ') || `Variant ${index}`;
 }
 function renumberVariantRows(){
-  $('variantList').querySelectorAll('.variant-row').forEach((row,index)=>{
-    row.dataset.variantIndex = String(index);
-    updateVariantRowTitle(row);
-  });
+  $('variantList').querySelectorAll('.variant-row').forEach((row,index)=>{ row.dataset.variantIndex=String(index); updateVariantRowTitle(row); });
 }
 function nonNegativeInt(value){
   const number = Number.parseInt(String(value ?? '').replace(/[^0-9]/g,''), 10);
@@ -538,10 +536,7 @@ function updateInventoryControls(){
     row.querySelector('.variant-quantity-wrap')?.classList.toggle('hide', !track);
     const qty = row.querySelector('.variant-quantity');
     if(qty) qty.disabled = !track;
-    if(track && nonNegativeInt(qty?.value) <= 0){
-      const availability = row.querySelector('.variant-availability');
-      if(availability) availability.value = 'out_of_stock';
-    }
+    if(track && nonNegativeInt(qty?.value) <= 0){ const availability=row.querySelector('.variant-availability'); if(availability) availability.value='out_of_stock'; }
   });
   const productQty = $('productStockQuantity');
   const hasVariants = rows.length > 0;
@@ -551,70 +546,58 @@ function updateInventoryControls(){
   }
   $('productStockWrap')?.classList.toggle('is-disabled', !track);
   const hint = $('stockQuantityHint');
-  if(hint) hint.textContent = hasVariants ? 'Calculated automatically from all variant quantities.' : 'Enter the available quantity for this product.';
+  if(hint) hint.textContent = hasVariants ? 'Calculated automatically from all colour + size variant quantities.' : 'Enter the available quantity for this product.';
   const summary = $('inventorySummary');
   if(summary){
     if(!track) summary.textContent = 'Stock tracking is off. Availability is controlled manually.';
     else if(hasVariants){
-      const total = rows.reduce((sum,row)=>sum + nonNegativeInt(row.querySelector('.variant-quantity')?.value), 0);
-      const available = rows.filter(row=>effectiveVariantStatus(row)==='in_stock').length;
-      summary.textContent = `${total} total unit${total===1?'':'s'} across ${rows.length} variant${rows.length===1?'':'s'} · ${available} variant${available===1?'':'s'} currently available.`;
-    }else{
-      const total = nonNegativeInt(productQty?.value);
-      summary.textContent = `${total} unit${total===1?'':'s'} currently available.`;
-    }
+      const total=rows.reduce((sum,row)=>sum+nonNegativeInt(row.querySelector('.variant-quantity')?.value),0);
+      const available=rows.filter(row=>effectiveVariantStatus(row)==='in_stock').length;
+      summary.textContent=`${total} total unit${total===1?'':'s'} across ${rows.length} exact variant${rows.length===1?'':'s'} · ${available} currently available.`;
+    }else summary.textContent=`${nonNegativeInt(productQty?.value)} unit${nonNegativeInt(productQty?.value)===1?'':'s'} currently available.`;
   }
 }
 function renderVariantImages(row){
   if(!row) return;
-  const holder = row.querySelector('.variant-images');
-  if(!holder) return;
-  const existing = JSON.parse(row.dataset.existingImages || '[]');
-  const files = Array.isArray(row.__variantFiles) ? row.__variantFiles : [];
-  const existingHtml = existing.map((url,index)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${index}" aria-label="Remove image">×</button></div>`).join('');
-  const newHtml = files.map((file,index)=>`<div class="variant-img-chip variant-new-image"><img src="${esc(URL.createObjectURL(file))}"><button type="button" data-remove-variant-new="${index}" aria-label="Remove selected image">×</button></div>`).join('');
-  holder.innerHTML = `${existingHtml}${newHtml}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label>`;
-  row.classList.toggle('has-new-images', files.length > 0);
+  const holder=row.querySelector('.variant-images'); if(!holder)return;
+  const existing=JSON.parse(row.dataset.existingImages || '[]');
+  const files=Array.isArray(row.__variantFiles)?row.__variantFiles:[];
+  const existingHtml=existing.map((url,index)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${index}" aria-label="Remove image">×</button></div>`).join('');
+  const newHtml=files.map((file,index)=>`<div class="variant-img-chip variant-new-image"><img src="${esc(URL.createObjectURL(file))}"><button type="button" data-remove-variant-new="${index}" aria-label="Remove selected image">×</button></div>`).join('');
+  holder.innerHTML=`${existingHtml}${newHtml}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label>`;
 }
 function collectVariantRows(){
-  return Array.from(document.querySelectorAll('.variant-row')).map(row => {
-    const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
-    return {
-      row,
-      kind,
-      value:clean(row.querySelector('.variant-value')?.value),
-      sizes:kind === 'color' ? clean(row.querySelector('.variant-sizes')?.value) : '',
-      mrp:price(row.querySelector('.variant-mrp')?.value),
-      price:price(row.querySelector('.variant-price')?.value),
-      stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),
-      stockStatus:effectiveVariantStatus(row),
-      terms:[],
-      existingImages:JSON.parse(row.dataset.existingImages || '[]'),
-      existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
-      files:Array.isArray(row.__variantFiles) ? row.__variantFiles : []
-    };
-  }).filter(v => v.value || v.sizes || v.mrp || v.price || v.existingImages.length || v.files.length);
+  return Array.from(document.querySelectorAll('.variant-row')).map(row => ({
+    row,
+    color:clean(row.querySelector('.variant-color')?.value),
+    size:clean(row.querySelector('.variant-size')?.value),
+    mrp:price(row.querySelector('.variant-mrp')?.value),
+    price:price(row.querySelector('.variant-price')?.value),
+    stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),
+    stockStatus:effectiveVariantStatus(row),
+    terms:[],
+    existingImages:JSON.parse(row.dataset.existingImages || '[]'),
+    existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
+    files:Array.isArray(row.__variantFiles)?row.__variantFiles:[]
+  })).filter(v => v.color || v.size || v.mrp || v.price || v.existingImages.length || v.files.length);
 }
 function validateVariantRows(rows){
-  const used = new Set();
-  const kinds = new Set(rows.map(item=>item.kind));
-  if(kinds.size > 1) throw new Error('Use either Size / option variants or Colour variants for one product. For colour variants, add their sizes inside “Sizes for this colour”.');
+  const used=new Set();
   for(const item of rows){
-    if(!item.value) throw new Error(`Enter the ${item.kind === 'color' ? 'colour name' : 'size / option value'} for every variant`);
-    const duplicateKey = `${item.kind}:${key(item.value)}`;
-    if(used.has(duplicateKey)) throw new Error(`Duplicate variant: ${item.value}`);
+    if(!item.color && !item.size) throw new Error('Enter a colour, size / option, or both for every variant.');
+    const duplicateKey=`${key(item.color || 'default')}::${key(item.size || 'standard')}`;
+    if(used.has(duplicateKey)) throw new Error(`Duplicate variant: ${item.color || 'Default'} ${item.size || 'Standard'}`);
     used.add(duplicateKey);
   }
 }
 async function collectVariantsPayload(rows, uploadedPaths = []){
-  const variants = [];
+  const variants=[];
   for(const item of rows){
-    const uploaded = await uploadFiles(item.files, 'variants');
+    const uploaded=await uploadFiles(item.files,'variants');
     uploadedPaths.push(...uploaded.map(x=>x.path));
     variants.push({
-      kind:item.kind,
-      color:item.kind === 'color' ? item.value : '',
-      sizes:item.kind === 'color' ? item.sizes : item.value,
+      color:item.color,
+      size:item.size || 'Standard',
       mrp:item.mrp,
       price:item.price,
       stockQuantity:item.stockQuantity || 0,
@@ -634,20 +617,9 @@ function appendVariantRow(data = {}){
   initializeVariantRow(list.lastElementChild);
 }
 function readVariantRowData(row){
-  const kind = clean(row.querySelector('.variant-kind')?.value || 'option') === 'color' ? 'color' : 'option';
-  const value = clean(row.querySelector('.variant-value')?.value);
-  return {
-    kind,
-    unit: kind === 'color' ? value : '',
-    label: kind === 'color' ? clean(row.querySelector('.variant-sizes')?.value) : value,
-    mrp: price(row.querySelector('.variant-mrp')?.value),
-    price: price(row.querySelector('.variant-price')?.value),
-    stockQuantity: nonNegativeInt(row.querySelector('.variant-quantity')?.value),
-    stockStatus: effectiveVariantStatus(row),
-    images: JSON.parse(row.dataset.existingImages || '[]'),
-    storagePaths: JSON.parse(row.dataset.existingPaths || '[]'),
-    terms: []
-  };
+  const color=clean(row.querySelector('.variant-color')?.value);
+  const size=clean(row.querySelector('.variant-size')?.value);
+  return {color,size,unit:color,label:size,mrp:price(row.querySelector('.variant-mrp')?.value),price:price(row.querySelector('.variant-price')?.value),stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),stockStatus:effectiveVariantStatus(row),images:JSON.parse(row.dataset.existingImages || '[]'),storagePaths:JSON.parse(row.dataset.existingPaths || '[]'),terms:[]};
 }
 async function openProduct(id){
   await ensureVariantAvailabilityReady();
@@ -702,7 +674,7 @@ async function saveProduct(event){
     const calculatedStock = variantRows.length ? variantRows.reduce((sum,v)=>sum + nonNegativeInt(v.stockQuantity), 0) : nonNegativeInt($('productStockQuantity')?.value);
     const anyVariantAvailable = variantRows.some(v => v.stockStatus !== 'out_of_stock' && nonNegativeInt(v.stockQuantity) > 0);
     const trackedStatus = variantRows.length ? (anyVariantAvailable ? 'in_stock' : 'out_of_stock') : (calculatedStock > 0 ? 'in_stock' : 'out_of_stock');
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || variantRows.find(v=>v.kind === 'option')?.sizes || 'Standard', colors:clean($('colors').value) || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock'), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || [...new Set(variantRows.map(v=>v.size).filter(Boolean))].join(', ') || 'Standard', colors:clean($('colors').value) || [...new Set(variantRows.map(v=>v.color).filter(Boolean))].join(', ') || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock'), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];
@@ -725,7 +697,7 @@ async function saveProduct(event){
     }
     const deleteVariants = await supabaseClient().from('product_variants').delete().eq('product_id', productId); if(deleteVariants.error) throw deleteVariants.error;
     if(variantRows.length){
-      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.sizes || '', unit:v.color || '', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock:trackInventory ? nonNegativeInt(v.stockQuantity) : 0, stock_status:trackInventory && nonNegativeInt(v.stockQuantity) <= 0 ? 'out_of_stock' : (v.stockStatus || 'in_stock'), sort_order:i}));
+      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.size || 'Standard', unit:v.color || '', color:v.color || null, size:v.size || 'Standard', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock:trackInventory ? nonNegativeInt(v.stockQuantity) : 0, stock_status:trackInventory && nonNegativeInt(v.stockQuantity) <= 0 ? 'out_of_stock' : (v.stockStatus || 'in_stock'), sort_order:i}));
       const {error}=await supabaseClient().from('product_variants').insert(rows); if(error){ if(/stock_status/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql in Supabase, then save again.'); throw error; }
     }
     const keepPaths = new Set(allPaths.concat(variantRows.flatMap(v=>v.storagePaths)));
@@ -846,6 +818,104 @@ async function saveOffer(event){
   }catch(err){ hideBusy(); setStatus(err.message,'error'); }
 }
 async function deleteOffer(){ const id=clean($('offerId').value); if(!id) return; if(!confirm('Delete this offer slide?')) return; try{ showBusy('Deleting offer...'); const o=offers.find(x=>x.id===id); const {error}=await supabaseClient().from('offer_slides').delete().eq('id', id); if(error) throw error; await removeStorage([o?.storagePath || storagePathFromUrl(o?.image)]); await notifyCustomerStoreChanged(['offer_slides'], 'offer-delete', {offerId:id}); await refreshMeta(); resetOffer(); hideBusy(); setStatus('Offer deleted ✅','ok'); }catch(err){ hideBusy(); setStatus(err.message,'error'); } }
+
+function adminOrderStatusLabel(status){
+  return ({confirmed:'Confirmed',packed:'Packed',out_for_delivery:'Out for delivery',delivered:'Delivered',cancelled:'Cancelled'})[clean(status)] || clean(status);
+}
+function adminPaymentLabel(method){ return clean(method)==='online' ? 'Online payment' : 'Cash on delivery'; }
+function adminOrderDate(value){ try{return new Date(value).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'});}catch(_e){return clean(value);} }
+function renderAdminOrders(){
+  const box=$('adminOrderList'); if(!box)return;
+  const filter=clean($('orderStatusFilter')?.value);
+  const search=key($('orderSearchInput')?.value);
+  const rows=adminOrders.filter(order=>{
+    if(filter && order.status!==filter)return false;
+    if(!search)return true;
+    return [order.order_number,order.customer_name,order.customer_phone,order.customer_address].some(value=>key(value).includes(search));
+  });
+  box.innerHTML=rows.length?rows.map(order=>{
+    const items=Array.isArray(order.order_items)?order.order_items:[];
+    const itemHtml=items.map(item=>`<div class="admin-order-item"><img src="${esc(item.image_url || '')}" alt=""><div><b>${esc(item.product_name)}</b><small>${[item.color?`Colour: ${item.color}`:'',item.size?`Size: ${item.size}`:''].filter(Boolean).join(' · ') || 'Standard'} · Qty ${Number(item.quantity||1)}</small></div><strong>₹${Number(item.line_total||0).toLocaleString('en-IN')}</strong></div>`).join('');
+    return `<article class="admin-order-card" data-admin-order="${esc(order.id)}">
+      <div class="admin-order-head"><div><span class="admin-order-status status-${esc(order.status)}">${esc(adminOrderStatusLabel(order.status))}</span><h2>${esc(order.order_number)}</h2><small>${esc(adminOrderDate(order.created_at))}</small></div><strong>₹${Number(order.total||0).toLocaleString('en-IN')}</strong></div>
+      <div class="admin-order-customer"><b>${esc(order.customer_name)}</b><span>${esc(order.customer_phone)}</span><p>${esc(order.customer_address)}</p></div>
+      <div class="admin-order-items">${itemHtml}</div>
+      <div class="admin-order-controls"><label>Status<select data-admin-order-status="${esc(order.id)}"><option value="confirmed" ${order.status==='confirmed'?'selected':''}>Confirmed</option><option value="packed" ${order.status==='packed'?'selected':''}>Packed</option><option value="out_for_delivery" ${order.status==='out_for_delivery'?'selected':''}>Out for delivery</option><option value="delivered" ${order.status==='delivered'?'selected':''}>Delivered</option><option value="cancelled" ${order.status==='cancelled'?'selected':''}>Cancelled</option></select></label><label>Payment<select data-admin-order-payment="${esc(order.id)}"><option value="pending" ${order.payment_status==='pending'?'selected':''}>Pending</option><option value="paid" ${order.payment_status==='paid'?'selected':''}>Paid</option><option value="failed" ${order.payment_status==='failed'?'selected':''}>Failed</option><option value="refunded" ${order.payment_status==='refunded'?'selected':''}>Refunded</option></select></label></div>
+      <div class="admin-order-foot"><span>${esc(adminPaymentLabel(order.payment_method))}</span>${order.cancellation_reason?`<b>Reason: ${esc(order.cancellation_reason)}</b>`:''}</div>
+    </article>`;
+  }).join(''):'<div class="empty">No orders match this view.</div>';
+}
+async function loadAdminOrders(){
+  await requireAdmin();
+  const {data,error}=await supabaseClient().from('orders').select('id,order_number,customer_name,customer_phone,customer_address,payment_method,payment_status,status,subtotal,total,cancellation_reason,cancelled_at,created_at,updated_at,order_items(id,product_name,color,size,quantity,unit_price,line_total,image_url)').order('created_at',{ascending:false}).limit(200);
+  if(error){ if(/orders|relation|schema cache/i.test(error.message||'')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.'); throw error; }
+  adminOrders=data||[];
+  renderAdminOrders();
+  setStatus(`Orders live · ${adminOrders.length} loaded`,'ok');
+}
+async function changeAdminOrderStatus(orderId,status){
+  let note=null;
+  if(status==='cancelled'){
+    note=prompt('Cancellation reason (saved in customer order history):','Cancelled by shop');
+    if(note===null){renderAdminOrders();return;}
+    if(!clean(note)){setStatus('Enter a cancellation reason.','error');renderAdminOrders();return;}
+  }
+  setStatus('Updating order...','loading');
+  const {error}=await supabaseClient().rpc('admin_update_order_status',{p_order_id:orderId,p_status:status,p_note:note});
+  if(error)throw error;
+  await notifyCustomerStoreChanged(status==='cancelled'?['orders','products','product_variants']:['orders'],`admin-order-${status}`,{orderId});
+  await loadAdminOrders();
+}
+async function changeAdminPayment(orderId,status){
+  const {error}=await supabaseClient().rpc('admin_set_order_payment',{p_order_id:orderId,p_payment_status:status});
+  if(error)throw error;
+  await notifyCustomerStoreChanged(['orders'],'admin-order-payment',{orderId,paymentStatus:status});
+  await loadAdminOrders();
+}
+function ensureOrderRealtime(){
+  if(orderRealtimeChannel)return;
+  try{
+    orderRealtimeChannel=supabaseClient().channel('wellone-admin-orders-v79').on('postgres_changes',{event:'*',schema:'public',table:'orders'},()=>{
+      clearTimeout(orderReloadTimer);
+      orderReloadTimer=setTimeout(()=>{ if($('viewOrders')?.classList.contains('active')) loadAdminOrders().catch(err=>setStatus(err.message,'error')); },120);
+    }).subscribe();
+  }catch(_error){orderRealtimeChannel=null;}
+}
+function resetEmployeeForm(){
+  if(!$('employeeForm'))return;
+  $('employeeForm').reset(); $('employeeId').value='';
+}
+async function loadEmployees(){
+  await requireAdmin();
+  const {data,error}=await supabaseClient().rpc('admin_list_employees');
+  if(error){ if(/function|schema cache|admin_list_employees/i.test(error.message||'')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.'); throw error; }
+  adminEmployees=data||[];
+  const box=$('employeeList'); if(!box)return;
+  box.innerHTML=adminEmployees.length?adminEmployees.map(emp=>`<article class="employee-row"><div><b>${esc(emp.username)}</b><small>${emp.is_active?'Active':'Disabled'} · Created ${esc(adminOrderDate(emp.created_at))}</small></div><div><button type="button" data-employee-edit="${esc(emp.id)}">Edit</button><button type="button" class="${emp.is_active?'danger-soft':''}" data-employee-toggle="${esc(emp.id)}" data-active="${emp.is_active?'0':'1'}">${emp.is_active?'Disable':'Enable'}</button></div></article>`).join(''):'<div class="empty">No employees created yet.</div>';
+}
+async function saveEmployee(event){
+  event.preventDefault();
+  const id=clean($('employeeId').value),username=clean($('employeeUsername').value),password=$('employeePassword').value||'';
+  if(!username)throw new Error('Enter employee username.');
+  if(!id && password.length<4)throw new Error('Create a password with at least 4 characters.');
+  showBusy(id?'Updating employee...':'Creating employee...');
+  try{
+    const {error}=await supabaseClient().rpc('admin_save_employee',{p_username:username,p_password:password,p_employee_id:id||null});
+    if(error)throw error;
+    resetEmployeeForm(); await loadEmployees(); hideBusy(); setStatus(id?'Employee updated ✅':'Employee created ✅','ok');
+  }catch(error){hideBusy();setStatus(error.message,'error');}
+}
+function editEmployee(id){
+  const emp=adminEmployees.find(item=>item.id===id); if(!emp)return;
+  $('employeeId').value=emp.id; $('employeeUsername').value=emp.username; $('employeePassword').value=''; $('employeePassword').focus();
+}
+async function toggleEmployee(id,active){
+  const {error}=await supabaseClient().rpc('admin_set_employee_active',{p_employee_id:id,p_active:active});
+  if(error)throw error;
+  await loadEmployees();
+  setStatus(active?'Employee enabled ✅':'Employee disabled ✅','ok');
+}
+
 async function checkManualBarcode(code){
   code=clean(code); if(!code){ setStatus('Enter a barcode to check.','error'); return; }
   try{
@@ -869,7 +939,7 @@ async function checkManualBarcode(code){
   }
 }
 
-async function lockAdmin(){ resetCustomerUpdateChannel(); try{ await supabaseClient().auth.signOut(); }catch(e){} $('adminShell').classList.add('is-locked'); $('loginScreen').style.display='grid'; if($('adminPasswordInput')) $('adminPasswordInput').value=''; setStatus('Login required'); }
+async function lockAdmin(){ resetCustomerUpdateChannel(); if(orderRealtimeChannel){try{supabaseClient().removeChannel(orderRealtimeChannel);}catch(_e){} orderRealtimeChannel=null;} try{ await supabaseClient().auth.signOut(); }catch(e){} $('adminShell').classList.add('is-locked'); $('loginScreen').style.display='grid'; if($('adminPasswordInput')) $('adminPasswordInput').value=''; setStatus('Login required'); }
 function bindEvents(){
   $('menuToggle').addEventListener('click', () => { const open = $('adminMenu').classList.toggle('open'); $('menuToggle').setAttribute('aria-expanded', String(open)); });
   document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); switchView(b.dataset.view); }));
@@ -895,7 +965,7 @@ function bindEvents(){
   $('photoPicker').addEventListener('click', () => $('photoInput').click());
   $('photoInput').addEventListener('change', () => { newImageFiles.push(...Array.from($('photoInput').files || [])); $('photoInput').value=''; renderImagePreviews(); });
   $('clearAllImagesBtn').addEventListener('click', clearProductImages);
-  $('addVariantBtn').addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); appendVariantRow({kind:'option',label:'',mrp:'',price:'',images:[],storagePaths:[],terms:[]}); });
+  $('addVariantBtn').addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); appendVariantRow({color:'',size:'',mrp:'',price:'',images:[],storagePaths:[],terms:[]}); });
   $('productForm').addEventListener('submit', saveProduct); $('deleteBtn').addEventListener('click', deleteProduct); $('cancelEditBtn').addEventListener('click', resetProduct);
   $('categoryPhotoPicker').addEventListener('click', () => $('categoryImageInput').click());
   $('categoryImageInput').addEventListener('change', () => { currentCategoryFile = $('categoryImageInput').files[0] || null; if(currentCategoryFile) $('categoryPreview').src = URL.createObjectURL(currentCategoryFile); });
@@ -904,6 +974,11 @@ function bindEvents(){
   $('offerImageInput').addEventListener('change', () => { currentOfferFile = $('offerImageInput').files[0] || null; if(currentOfferFile) $('offerPreview').src = URL.createObjectURL(currentOfferFile); });
   $('offerItemForm').addEventListener('submit', saveOfferItem); $('cancelOfferItemBtn').addEventListener('click', resetOfferItem); $('deleteOfferItemBtn').addEventListener('click', deleteOfferItem);
   $('offerForm').addEventListener('submit', saveOffer); $('cancelOfferBtn').addEventListener('click', resetOffer); $('deleteOfferBtn').addEventListener('click', deleteOffer);
+  $('reloadOrdersBtn')?.addEventListener('click',()=>loadAdminOrders().catch(err=>setStatus(err.message,'error')));
+  $('orderStatusFilter')?.addEventListener('change',renderAdminOrders);
+  $('orderSearchInput')?.addEventListener('input',renderAdminOrders);
+  $('employeeForm')?.addEventListener('submit',saveEmployee);
+  $('employeeResetBtn')?.addEventListener('click',resetEmployeeForm);
   $('barcodeLookupForm').addEventListener('submit', e => {
     e.preventDefault();
     checkManualBarcode($('barcodeLookupInput').value);
@@ -916,6 +991,8 @@ function bindEvents(){
     const cat = e.target.closest('[data-cat-edit]'); if(cat) openCategory(cat.dataset.catEdit);
     const offer = e.target.closest('[data-offer-edit]'); if(offer) openOffer(offer.dataset.offerEdit);
     const offerItem = e.target.closest('[data-offer-item-edit]'); if(offerItem) openOfferItem(offerItem.dataset.offerItemEdit);
+    const employeeEdit=e.target.closest('[data-employee-edit]'); if(employeeEdit){editEmployee(employeeEdit.dataset.employeeEdit);return;}
+    const employeeToggle=e.target.closest('[data-employee-toggle]'); if(employeeToggle){toggleEmployee(employeeToggle.dataset.employeeToggle,employeeToggle.dataset.active==='1').catch(err=>setStatus(err.message,'error'));return;}
     const re = e.target.closest('[data-remove-existing-image]'); if(re){ currentImages.splice(Number(re.dataset.removeExistingImage),1); renderImagePreviews(); }
     const rn = e.target.closest('[data-remove-new-image]'); if(rn){ newImageFiles.splice(Number(rn.dataset.removeNewImage),1); renderImagePreviews(); }
     const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!$('variantList').querySelector('.variant-row')) renderVariantRows([]); else renumberVariantRows(); updateInventoryControls(); }
@@ -923,14 +1000,14 @@ function bindEvents(){
     const newImage = e.target.closest('[data-remove-variant-new]'); if(newImage){ const row=newImage.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.splice(Number(newImage.dataset.removeVariantNew || 0),1); renderVariantImages(row); } }
   });
   document.addEventListener('change', e => {
-    if(e.target.classList.contains('variant-kind')) updateVariantRowMode(e.target.closest('.variant-row'));
+    if(e.target.matches('[data-admin-order-status]')){changeAdminOrderStatus(e.target.dataset.adminOrderStatus,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
+    if(e.target.matches('[data-admin-order-payment]')){changeAdminPayment(e.target.dataset.adminOrderPayment,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.classList.contains('variant-availability')) updateInventoryControls();
     if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.push(...Array.from(e.target.files || [])); e.target.value=''; renderVariantImages(row); } }
   });
   document.addEventListener('input', e => {
-    if(e.target.classList.contains('variant-value')) updateVariantRowTitle(e.target.closest('.variant-row'));
+    if(e.target.classList.contains('variant-color') || e.target.classList.contains('variant-size')) updateVariantRowTitle(e.target.closest('.variant-row'));
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
-    if(e.target.id === 'optionTitle') $('variantList').querySelectorAll('.variant-row').forEach(updateVariantRowMode);
   });
 }
 bindEvents(); renderVariantRows([]); updateInventoryControls(); resetOfferItem(); lockAdmin();

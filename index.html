@@ -1,11 +1,12 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin</title>
-  <link rel="preconnect" href="https://wnavzhrkwgnegjdetdno.supabase.co">
-  <script>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Wellone Admin</title>
+<link href="https://wnavzhrkwgnegjdetdno.supabase.co" rel="preconnect"/>
+<script>
     (function(){
       try{
         if(window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone){
@@ -14,222 +15,225 @@
       }catch(_error){}
     })();
   </script>
-  <link rel="stylesheet" href="css/admin.css?v=73">
-  <link rel="icon" href="./assets/favicon/favicon.ico" type="image/x-icon">
-  <link rel="apple-touch-icon" href="./assets/favicon/apple-icon-180x180.png">
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#f5fff4">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Wellone Admin">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link href="css/admin.css?v=80" rel="stylesheet"/>
+<link href="./assets/favicon/favicon.ico" rel="icon" type="image/x-icon"/>
+<link href="./assets/favicon/apple-icon-180x180.png" rel="apple-touch-icon"/>
+<link href="manifest.webmanifest" rel="manifest"/>
+<meta content="#f5fff4" name="theme-color"/>
+<meta content="yes" name="apple-mobile-web-app-capable"/>
+<meta content="yes" name="mobile-web-app-capable"/>
+<meta content="Wellone Admin" name="apple-mobile-web-app-title"/>
+<meta content="black-translucent" name="apple-mobile-web-app-status-bar-style"/>
 </head>
 <body>
-  <div id="pwaLaunchSplash" class="app-launch-splash" aria-hidden="true">
-    <img src="assets/logo.png?v=75" alt="" width="3144" height="824" fetchpriority="high">
-  </div>
-  <section id="loginScreen" class="login-screen">
-    <form id="loginForm" class="login-card">
-      <img src="assets/logo.png?v=75" alt="Wellone logo" width="3144" height="824" decoding="async">
-      <p class="tag">secure admin</p>
-      <h1>Admin</h1>
-      <input id="adminEmailInput" type="email" placeholder="Admin email" autocomplete="username" required>
-      <input id="adminPasswordInput" type="password" placeholder="Admin password" autocomplete="current-password" required>
-      <button type="submit">Login</button>
-      <p id="loginError" class="login-error"></p>
-    </form>
-  </section>
+<div aria-hidden="true" class="app-launch-splash" id="pwaLaunchSplash">
+<img alt="" fetchpriority="high" height="824" src="assets/logo.png?v=80" width="3144"/>
+</div>
+<section class="login-screen" id="loginScreen">
+<form class="login-card" id="loginForm">
+<img alt="Wellone logo" decoding="async" height="824" src="assets/logo.png?v=80" width="3144"/>
+<p class="tag">secure admin</p>
+<h1>Admin</h1>
+<input autocomplete="username" id="adminEmailInput" placeholder="Admin email" required="" type="email"/>
+<input autocomplete="current-password" id="adminPasswordInput" placeholder="Admin password" required="" type="password"/>
+<button type="submit">Login</button>
+<p class="login-error" id="loginError"></p>
+</form>
+</section>
+<div class="admin-shell is-locked" id="adminShell">
+<header class="admin-head">
+<a class="admin-logo"><img alt="Wellone" decoding="async" height="824" src="assets/logo.png?v=80" width="3144"/></a>
+<button class="menu-toggle" id="menuToggle" type="button">☰</button>
+<nav class="admin-menu" id="adminMenu">
+<button class="active" data-view="products" type="button">Products</button>
+<button data-view="add" type="button">Add Product</button>
+<button data-view="categories" type="button">Categories</button>
+<button data-view="offers" type="button">Offers</button>
 
-  <div id="adminShell" class="admin-shell is-locked">
-    <header class="admin-head">
-      <a class="admin-logo"><img src="assets/logo.png?v=75" alt="Wellone" width="3144" height="824" decoding="async"></a>
-      <button id="menuToggle" class="menu-toggle" type="button">☰</button>
-      <nav id="adminMenu" class="admin-menu">
-        <button data-view="products" class="active" type="button">Products</button>
-        <button data-view="add" type="button">Add Product</button>
-        <button data-view="categories" type="button">Categories</button>
-        <button data-view="offers" type="button">Offers</button>
-        <button id="logoutBtn" type="button">Logout</button>
-      </nav>
-    </header>
+<button data-view="employees" type="button">Employees</button>
 
-    <section class="status-card"><span id="statusText">Login required</span></section>
-
-    <main>
-      <section id="viewProducts" class="view-panel active clean-card">
-        <div class="panel-head">
-          <div><p class="tag">products</p><h1>Product list</h1></div>
-          <button id="newProductBtn" class="submit-small" type="button">+ Add product</button>
-        </div>
-        <div class="list-controls">
-          <select id="productCategoryFilter"></select>
-          <input id="searchProducts" type="search" placeholder="Search products, barcode, category, subcategory or price">
-          <button id="reloadProductsBtn" type="button">Load</button>
-        </div>
-        <form id="barcodeLookupForm" class="barcode-lookup-row">
-          <input id="barcodeLookupInput" autocomplete="off" inputmode="text" placeholder="Type barcode to find or add a product">
-          <button type="submit">Check barcode</button>
-        </form>
-        <div id="productList" class="product-list"></div>
-        <button id="loadMoreProductsBtn" class="load-more hide" type="button">Load more products</button>
-      </section>
-
-      <section id="viewAdd" class="view-panel clean-card">
-        <div class="panel-head"><div><p class="tag">product editor</p><h1 id="formTitle">Add product</h1></div></div>
-        <form id="productForm" class="product-form">
-          <input id="editId" type="hidden">
-          <div class="product-form-grid">
-            <div>
-              <div id="photoPicker" class="photo-picker"><span>🖼️</span><b>Add product images</b><small>Multiple images</small></div>
-              <input id="photoInput" type="file" accept="image/*" multiple hidden>
-              <input id="photoCameraInput" type="file" accept="image/*" capture="environment" hidden>
-              <div id="previewGrid" class="preview-grid"></div>
-              <button id="clearAllImagesBtn" class="ghost-btn" type="button">Clear images</button>
-            </div>
-            <div class="form-fields">
-              <div class="field-row category-subcategory-row">
-                <label>Category
+<button id="logoutBtn" type="button">Logout</button>
+</nav>
+</header>
+<section class="status-card"><span id="statusText">Login required</span></section>
+<main>
+<section class="view-panel active clean-card" id="viewProducts">
+<div class="panel-head">
+<div><p class="tag">products</p><h1>Product list</h1></div>
+<button class="submit-small" id="newProductBtn" type="button">+ Add product</button>
+</div>
+<div class="list-controls">
+<select id="productCategoryFilter"></select>
+<input id="searchProducts" placeholder="Search products, barcode, category, subcategory or price" type="search"/>
+<button id="reloadProductsBtn" type="button">Load</button>
+</div>
+<form class="barcode-lookup-row" id="barcodeLookupForm">
+<input autocomplete="off" id="barcodeLookupInput" inputmode="text" placeholder="Type barcode to find or add a product"/>
+<button type="submit">Check barcode</button>
+</form>
+<div class="product-list" id="productList"></div>
+<button class="load-more hide" id="loadMoreProductsBtn" type="button">Load more products</button>
+</section>
+<section class="view-panel clean-card" id="viewAdd">
+<div class="panel-head"><div><p class="tag">product editor</p><h1 id="formTitle">Add product</h1></div></div>
+<form class="product-form" id="productForm">
+<input id="editId" type="hidden"/>
+<div class="product-form-grid">
+<div>
+<div class="photo-picker" id="photoPicker"><span>🖼️</span><b>Add product images</b><small>Multiple images</small></div>
+<input accept="image/*" hidden="" id="photoInput" multiple="" type="file"/>
+<input accept="image/*" capture="environment" hidden="" id="photoCameraInput" type="file"/>
+<div class="preview-grid" id="previewGrid"></div>
+<button class="ghost-btn" id="clearAllImagesBtn" type="button">Clear images</button>
+</div>
+<div class="form-fields">
+<div class="field-row category-subcategory-row">
+<label>Category
                   <div class="category-select-wrap">
-                    <select id="category" required aria-label="Select product category">
-                      <option value="">Select category</option>
-                    </select>
-                    <span class="category-select-arrow" aria-hidden="true"></span>
-                  </div>
-                </label>
-                <label>Subcategory / filter
-                  <div id="subcategoryCombobox" class="subcategory-combobox">
-                    <input id="subcategory" type="text" autocomplete="off" placeholder="Select category first" role="combobox" aria-autocomplete="list" aria-controls="subcategoryOptions" aria-expanded="false" disabled>
-                    <button id="subcategoryToggle" class="subcategory-toggle" type="button" aria-label="Show subcategories" aria-controls="subcategoryOptions" aria-expanded="false" disabled></button>
-                    <div id="subcategoryOptions" class="subcategory-options" role="listbox" hidden></div>
-                  </div>
-                  <small id="subcategoryHint" class="subcategory-hint">Select a category first.</small>
-                </label>
-              </div>
-              <small id="categoryHint" class="hint hide"></small>
-              
-              <label>Product name<input id="productName" placeholder="Name" required></label>
-              <section class="inventory-box" aria-labelledby="inventoryTitle">
-                <div class="inventory-head">
-                  <div><b id="inventoryTitle">Inventory & barcode</b><small>Optional controls for item identification and quantity-based stock.</small></div>
-                </div>
-                <div class="inventory-toggle-grid">
-                  <label class="switch-row"><span><b>Barcode identification</b><small>Link a unique barcode to this product.</small></span><input id="barcodeEnabled" type="checkbox"></label>
-                  <label class="switch-row"><span><b>Track stock quantity</b><small>Calculate availability from product or variant quantities.</small></span><input id="trackInventory" type="checkbox"></label>
-                </div>
-                <div class="inventory-fields">
-                  <label id="barcodeFieldWrap">Product barcode
-                    <input id="barcodeValue" autocomplete="off" inputmode="text" placeholder="Enter EAN / UPC / Code 128">
-                    <small class="hint">Enter the barcode manually. It must be unique when enabled.</small>
-                  </label>
-                  <label id="productStockWrap">Available quantity
-                    <input id="productStockQuantity" type="number" min="0" step="1" inputmode="numeric" value="0">
-                    <small id="stockQuantityHint" class="hint">Used when the product has no individual stock variants.</small>
-                  </label>
-                </div>
-                <div id="inventorySummary" class="inventory-summary">Stock tracking is off.</div>
-              </section>
-              <div class="field-row three price-availability-row">
-                <label>MRP / crossed price<input id="mrp" inputmode="numeric" placeholder="1099"></label>
-                <label>Final price<input id="price" inputmode="numeric" placeholder="679" required></label>
-                <label>Availability<select id="availability"><option value="in_stock">Available</option><option value="out_of_stock">Out of stock</option><option value="hidden">Hide product</option></select></label>
-              </div>
-              <div class="field-row three">
-                <label>Option title<input id="optionTitle" placeholder="Size / Quantity / Litre / Metre"></label>
-                <label>Same-price options<input id="sizes" placeholder="7, 8, 9 or 250ml, 500ml"></label>
-                <label>Colours (same price/images)<input id="colors" placeholder="Black, White, Default"></label>
-              </div>
-              <label>Description<textarea id="description" rows="3" placeholder="Short product detail"></textarea></label>
-              <div class="term-picker"><b>Product policies</b><div id="productTermChecks" class="check-grid"></div></div>
-              <div class="variant-box">
-                <div class="variant-head"><b>Price, image & stock variants</b><button id="addVariantBtn" type="button">+ Add variant</button></div>
-                <small class="variant-help">Choose Size / option for 9, 500ml, Large, etc. Choose Colour for Gold, Silver, Black, etc.</small>
-                <div id="variantList" class="variant-list"></div>
-              </div>
-              <div class="save-row">
-                <button id="cancelEditBtn" class="ghost-btn hide" type="button">Cancel</button>
-                <button id="deleteBtn" class="delete-btn" type="button" style="display:none">Delete</button>
-                <button id="saveBtn" class="submit-btn" type="submit">Save Product</button>
-              </div>
-            </div>
-          </div>
-        </form>
-      </section>
+<select aria-label="Select product category" id="category" required="">
+<option value="">Select category</option>
+</select>
+<span aria-hidden="true" class="category-select-arrow"></span>
+</div>
+</label>
+<label>Subcategory / filter
+                  <div class="subcategory-combobox" id="subcategoryCombobox">
+<input aria-autocomplete="list" aria-controls="subcategoryOptions" aria-expanded="false" autocomplete="off" disabled="" id="subcategory" placeholder="Select category first" role="combobox" type="text"/>
+<button aria-controls="subcategoryOptions" aria-expanded="false" aria-label="Show subcategories" class="subcategory-toggle" disabled="" id="subcategoryToggle" type="button"></button>
+<div class="subcategory-options" hidden="" id="subcategoryOptions" role="listbox"></div>
+</div>
+<small class="subcategory-hint" id="subcategoryHint">Select a category first.</small>
+</label>
+</div>
+<small class="hint hide" id="categoryHint"></small>
+<label>Product name<input id="productName" placeholder="Name" required=""/></label>
+<section aria-labelledby="inventoryTitle" class="inventory-box">
+<div class="inventory-head">
+<div><b id="inventoryTitle">Inventory &amp; barcode</b><small>Optional controls for item identification and quantity-based stock.</small></div>
+</div>
+<div class="inventory-toggle-grid">
+<label class="switch-row"><span><b>Barcode identification</b><small>Link a unique barcode to this product.</small></span><input id="barcodeEnabled" type="checkbox"/></label>
+<label class="switch-row"><span><b>Track stock quantity</b><small>Calculate availability from product or variant quantities.</small></span><input id="trackInventory" type="checkbox"/></label>
+</div>
+<div class="inventory-fields">
+<label id="barcodeFieldWrap">Product barcode
+                    <input autocomplete="off" id="barcodeValue" inputmode="text" placeholder="Enter EAN / UPC / Code 128"/>
+<small class="hint">Enter the barcode manually. It must be unique when enabled.</small>
+</label>
+<label id="productStockWrap">Available quantity
+                    <input id="productStockQuantity" inputmode="numeric" min="0" step="1" type="number" value="0"/>
+<small class="hint" id="stockQuantityHint">Used when the product has no individual stock variants.</small>
+</label>
+</div>
+<div class="inventory-summary" id="inventorySummary">Stock tracking is off.</div>
+</section>
+<div class="field-row three price-availability-row">
+<label>MRP / crossed price<input id="mrp" inputmode="numeric" placeholder="1099"/></label>
+<label>Final price<input id="price" inputmode="numeric" placeholder="679" required=""/></label>
+<label>Availability<select id="availability"><option value="in_stock">Available</option><option value="out_of_stock">Out of stock</option><option value="hidden">Hide product</option></select></label>
+</div>
+<div class="field-row three">
+<label>Option title<input id="optionTitle" placeholder="Size / Quantity / Litre / Metre"/></label>
+<label>Same-price options<input id="sizes" placeholder="7, 8, 9 or 250ml, 500ml"/></label>
+<label>Colours (same price/images)<input id="colors" placeholder="Black, White, Default"/></label>
+</div>
+<label>Description<textarea id="description" placeholder="Short product detail" rows="3"></textarea></label>
+<div class="term-picker"><b>Product policies</b><div class="check-grid" id="productTermChecks"></div></div>
+<div class="variant-box">
+<div class="variant-head"><b>Price, image &amp; stock variants</b><button id="addVariantBtn" type="button">+ Add variant</button></div>
+<small class="variant-help">Choose Size / option for 9, 500ml, Large, etc. Choose Colour for Gold, Silver, Black, etc.</small>
+<div class="variant-list" id="variantList"></div>
+</div>
+<div class="save-row">
+<button class="ghost-btn hide" id="cancelEditBtn" type="button">Cancel</button>
+<button class="delete-btn" id="deleteBtn" style="display:none" type="button">Delete</button>
+<button class="submit-btn" id="saveBtn" type="submit">Save Product</button>
+</div>
+</div>
+</div>
+</form>
+</section>
+<section class="view-panel clean-card" id="viewCategories">
+<div class="panel-head"><div><p class="tag">categories</p><h1>Category cards</h1></div></div>
+<form class="category-form" id="categoryForm">
+<input id="categoryOldName" type="hidden"/>
+<div class="category-form-grid">
+<div>
+<div class="photo-picker small" id="categoryPhotoPicker"><span>📁</span><b>Select category image</b></div>
+<input accept="image/*" hidden="" id="categoryImageInput" type="file"/>
+<input accept="image/*" capture="environment" hidden="" id="categoryCameraInput" type="file"/>
+<div class="single-preview" id="categoryPreviewWrap"><img alt="" id="categoryPreview"/></div>
+</div>
+<div>
+<label>Category name<input id="categoryNameInput" list="categoryManagerOptions" placeholder="Category" required=""/></label>
+<datalist id="categoryManagerOptions"></datalist>
+<label>Mini description<input id="categoryDescriptionInput" placeholder="Discover premium Cosmetics collections."/></label>
+<div class="save-row"><button class="delete-btn" id="deleteCategoryBtn" style="display:none" type="button">Delete</button><button class="submit-btn" id="saveCategoryBtn" type="submit">Save Category</button></div>
+</div>
+</div>
+</form>
+<div class="category-list" id="categoryManagerList"></div>
+</section>
 
-      <section id="viewCategories" class="view-panel clean-card">
-        <div class="panel-head"><div><p class="tag">categories</p><h1>Category cards</h1></div></div>
-        <form id="categoryForm" class="category-form">
-          <input id="categoryOldName" type="hidden">
-          <div class="category-form-grid">
-            <div>
-              <div id="categoryPhotoPicker" class="photo-picker small"><span>📁</span><b>Select category image</b></div>
-              <input id="categoryImageInput" type="file" accept="image/*" hidden>
-              <input id="categoryCameraInput" type="file" accept="image/*" capture="environment" hidden>
-              <div id="categoryPreviewWrap" class="single-preview"><img id="categoryPreview" alt=""></div>
-            </div>
-            <div>
-              <label>Category name<input id="categoryNameInput" list="categoryManagerOptions" placeholder="Category" required></label>
-              <datalist id="categoryManagerOptions"></datalist>
-              <label>Mini description<input id="categoryDescriptionInput" placeholder="Discover premium Cosmetics collections."></label>
-              <div class="save-row"><button id="deleteCategoryBtn" class="delete-btn" type="button" style="display:none">Delete</button><button id="saveCategoryBtn" class="submit-btn" type="submit">Save Category</button></div>
-            </div>
-          </div>
-        </form>
-        <div id="categoryManagerList" class="category-list"></div>
-      </section>
-
-      <section id="viewOffers" class="view-panel clean-card">
-        <div class="panel-head"><div><p class="tag">promotions</p><h1>Offers</h1><p>Manage promotional products and independent sliding banners from one place.</p></div></div>
-
-        <section class="offer-manager-block">
-          <div class="subpanel-head"><div><b>Offer product items</b><small>Add product offers for the separate customer Offers page. Live offers use the offer price; expired offers automatically fall back to the regular product price.</small></div></div>
-          <form id="offerItemForm" class="offer-item-form">
-            <input id="offerItemId" type="hidden">
-            <div class="field-row two">
-              <label>Product link<input id="offerItemLink" type="text" placeholder="product.html?cat=Cosmetics&amp;id=PRODUCT_ID or full product URL" required></label>
-              <label>Offer price<input id="offerItemPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="599" required></label>
-            </div>
-            <div class="field-row three">
-              <label>Offer label <small class="optional">Optional</small><input id="offerItemTitle" type="text" placeholder="Weekend special"></label>
-              <label>Discount percentage <small class="optional">Optional</small><input id="offerItemDiscount" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="25"></label>
-              <label>Valid until <small class="optional">Optional</small><input id="offerItemValidUntil" type="datetime-local"></label>
-            </div>
-            <label class="inline-check"><input id="offerItemActive" type="checkbox" checked> Show this offer item</label>
-            <div class="save-row"><button id="cancelOfferItemBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferItemBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Offer Item</button></div>
-          </form>
-          <div id="offerItemList" class="product-list"></div>
-        </section>
-
-        <section class="offer-manager-block">
-          <div class="subpanel-head"><div><b>Sliding offer banners</b><small>Add independent promotional banners. To open all offer products from a home banner, set its redirect link to <b>offers.html</b>. Recommended size: 1599 × 780.</small></div></div>
-          <form id="offerForm" class="offer-form">
-            <input id="offerId" type="hidden">
-            <input id="offerTitle" type="hidden">
-            <input id="offerMrp" type="hidden">
-            <input id="offerPrice" type="hidden">
-            <input id="offerQuantity" type="hidden">
-            <div class="category-form-grid">
-              <div>
-                <div id="offerPhotoPicker" class="photo-picker small"><span>🖼️</span><b>Select banner image</b><small>Recommended: 1599 × 780</small></div>
-                <input id="offerImageInput" type="file" accept="image/*" hidden>
-                <div id="offerPreviewWrap" class="single-preview"><img id="offerPreview" alt=""></div>
-              </div>
-              <div class="form-fields">
-                <label>Redirect link<input id="offerLink" placeholder="offers.html or any product/category URL"></label>
-                <label class="inline-check"><input id="offerActive" type="checkbox" checked> Show this banner</label>
-                <div class="save-row"><button id="cancelOfferBtn" class="ghost-btn" type="button">Reset</button><button id="deleteOfferBtn" class="delete-btn" type="button" style="display:none">Delete</button><button class="submit-btn" type="submit">Save Banner</button></div>
-              </div>
-            </div>
-          </form>
-          <div id="offerList" class="product-list"></div>
-        </section>
-      </section>
-    </main>
-  </div>
-
-  <div id="busy" class="busy-overlay"><div><b></b><span id="busyText">Working...</span></div></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/admin-config.js?v=75"></script>
-  <script src="js/admin.js?v=75"></script>
-  <script src="js/pwa-install.js?v=75"></script>
+<section class="view-panel clean-card" id="viewEmployees">
+<div class="panel-head"><div><p class="tag">staff access</p><h1>Employees</h1><p>Create and manage usernames/passwords for the separately deployed Employee site.</p></div></div>
+<form class="employee-form" id="employeeForm">
+<input id="employeeId" type="hidden"/>
+<div class="field-row two"><label>Username<input autocomplete="off" id="employeeUsername" placeholder="employee1" required=""/></label><label>Password <small class="optional">Leave blank when editing to keep current password</small><input autocomplete="new-password" id="employeePassword" placeholder="Create password" type="password"/></label></div>
+<div class="save-row"><button class="ghost-btn" id="employeeResetBtn" type="button">Reset</button><button class="submit-btn" type="submit">Save Employee</button></div>
+</form>
+<div class="employee-list" id="employeeList"><div class="empty">No employees loaded.</div></div>
+</section>
+<section class="view-panel clean-card" id="viewOffers">
+<div class="panel-head"><div><p class="tag">promotions</p><h1>Offers</h1><p>Manage promotional products and independent sliding banners from one place.</p></div></div>
+<section class="offer-manager-block">
+<div class="subpanel-head"><div><b>Offer product items</b><small>Add product offers for the separate customer Offers page. Live offers use the offer price; expired offers automatically fall back to the regular product price.</small></div></div>
+<form class="offer-item-form" id="offerItemForm">
+<input id="offerItemId" type="hidden"/>
+<div class="field-row two">
+<label>Product link<input id="offerItemLink" placeholder="product.html?cat=Cosmetics&amp;id=PRODUCT_ID or full product URL" required="" type="text"/></label>
+<label>Offer price<input id="offerItemPrice" inputmode="decimal" min="0" placeholder="599" required="" step="0.01" type="number"/></label>
+</div>
+<div class="field-row three">
+<label>Offer label <small class="optional">Optional</small><input id="offerItemTitle" placeholder="Weekend special" type="text"/></label>
+<label>Discount percentage <small class="optional">Optional</small><input id="offerItemDiscount" inputmode="decimal" max="100" min="0" placeholder="25" step="0.01" type="number"/></label>
+<label>Valid until <small class="optional">Optional</small><input id="offerItemValidUntil" type="datetime-local"/></label>
+</div>
+<label class="inline-check"><input checked="" id="offerItemActive" type="checkbox"/> Show this offer item</label>
+<div class="save-row"><button class="ghost-btn" id="cancelOfferItemBtn" type="button">Reset</button><button class="delete-btn" id="deleteOfferItemBtn" style="display:none" type="button">Delete</button><button class="submit-btn" type="submit">Save Offer Item</button></div>
+</form>
+<div class="product-list" id="offerItemList"></div>
+</section>
+<section class="offer-manager-block">
+<div class="subpanel-head"><div><b>Sliding offer banners</b><small>Add independent promotional banners. To open all offer products from a home banner, set its redirect link to <b>offers.html</b>. Recommended size: 1599 × 780.</small></div></div>
+<form class="offer-form" id="offerForm">
+<input id="offerId" type="hidden"/>
+<input id="offerTitle" type="hidden"/>
+<input id="offerMrp" type="hidden"/>
+<input id="offerPrice" type="hidden"/>
+<input id="offerQuantity" type="hidden"/>
+<div class="category-form-grid">
+<div>
+<div class="photo-picker small" id="offerPhotoPicker"><span>🖼️</span><b>Select banner image</b><small>Recommended: 1599 × 780</small></div>
+<input accept="image/*" hidden="" id="offerImageInput" type="file"/>
+<div class="single-preview" id="offerPreviewWrap"><img alt="" id="offerPreview"/></div>
+</div>
+<div class="form-fields">
+<label>Redirect link<input id="offerLink" placeholder="offers.html or any product/category URL"/></label>
+<label class="inline-check"><input checked="" id="offerActive" type="checkbox"/> Show this banner</label>
+<div class="save-row"><button class="ghost-btn" id="cancelOfferBtn" type="button">Reset</button><button class="delete-btn" id="deleteOfferBtn" style="display:none" type="button">Delete</button><button class="submit-btn" type="submit">Save Banner</button></div>
+</div>
+</div>
+</form>
+<div class="product-list" id="offerList"></div>
+</section>
+</section>
+</main>
+</div>
+<div class="busy-overlay" id="busy"><div><b></b><span id="busyText">Working...</span></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/admin-config.js?v=80"></script>
+<script src="js/admin.js?v=80"></script>
+<script src="js/pwa-install.js?v=80"></script>
 </body>
 </html>

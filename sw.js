@@ -1,9 +1,9 @@
-const CACHE_VERSION = 'wellone-admin-v75-offers-page';
+const CACHE_VERSION = 'wellone-admin-v80-separated';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const SHELL_ASSETS = [
-  './', './index.html', './css/admin.css?v=75', './js/admin-config.js?v=75', './js/admin.js?v=75', './js/pwa-install.js?v=75',
-  './manifest.webmanifest', './assets/logo.png?v=75', './assets/favicon/favicon.ico',
+  './', './index.html', './css/admin.css?v=80', './js/admin-config.js?v=80', './js/admin.js?v=80', './js/pwa-install.js?v=80',
+  './manifest.webmanifest', './assets/logo.png?v=80', './assets/favicon/favicon.ico',
   './assets/favicon/wellone-icon-192-v46.png', './assets/favicon/wellone-icon-512-v46.png',
   './assets/favicon/wellone-icon-192-maskable-v46.png', './assets/favicon/wellone-icon-512-maskable-v46.png'
 ];
@@ -86,7 +86,9 @@ self.addEventListener('fetch', event => {
   }
 
   if(request.mode === 'navigate'){
-    event.respondWith(networkFirst(request, './index.html'));
+    const url = new URL(request.url);
+    const page = url.pathname.split('/').pop() || 'index.html';
+    event.respondWith(networkFirst(request, `./${page}`));
     return;
   }
 
