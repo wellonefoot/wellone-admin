@@ -15,13 +15,6 @@ const slugify = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/
 const splitList = v => Array.isArray(v) ? v.map(clean).filter(Boolean) : clean(v).split(/[|,\n]+/).map(x=>x.trim()).filter(Boolean);
 const price = v => { v = clean(v).replace(/[₹,]/g,''); return v ? v : null; };
 const rupee = v => price(v) ? '₹' + price(v) : '';
-function withTimeout(promise, ms = 12000, message = 'Network is taking too long. Please try again.'){
-  let timer;
-  return Promise.race([
-    Promise.resolve(promise).finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })
-  ]);
-}
 // Add a future selectable policy here, then add its SVG path in policyIconSvg().
 const FIXED_PRODUCT_TERMS = Object.freeze([
   {key:'exchange', label:'7 Day Exchange Policy', description:'Eligible items can be exchanged within 7 days.'},
@@ -79,6 +72,11 @@ let orderReloadTimer = null;
 let currentProducts = [];
 let currentProductOffset = 0;
 let nextProductOffset = null;
+const ADMIN_PRODUCT_PAGE_SIZE = 20;
+let productListLoading = false;
+let productListRequestSerial = 0;
+let adminProductObserver = null;
+let adminProductScrollHandler = null;
 let currentImages = [];
 let newImageFiles = [];
 let currentCategoryImageUrl = '';
@@ -117,6 +115,50 @@ function resetCustomerUpdateChannel(){
     try{ supabaseClient().removeChannel(channel); }catch(_error){}
   }
 }
+function adminProductIdFromChange(table, payload, details){
+  const direct = clean(details?.productId || '');
+  if(direct) return direct;
+  const row = payload?.new || payload?.old || {};
+  if(table === 'products') return clean(row.id || '');
+  if(table === 'product_variants' || table === 'product_images') return clean(row.product_id || '');
+  return '';
+}
+async function refreshLoadedAdminProduct(productId){
+  productId = clean(productId);
+  if(!productId || !currentProducts.some(product => product.id === productId)) return false;
+  const {data,error}=await supabaseClient().from('products').select(PRODUCT_LIST_SELECT).eq('id',productId).maybeSingle();
+  if(error) throw error;
+  const index=currentProducts.findIndex(product=>product.id===productId);
+  if(index<0) return false;
+  const list=$('productList');
+  const node=Array.from(list?.querySelectorAll('[data-product-row]')||[]).find(item=>clean(item.dataset.productRow)===productId);
+  if(!data){
+    currentProducts.splice(index,1);
+    node?.remove();
+    return true;
+  }
+  const product=normalizeProduct(data);
+  currentProducts[index]=product;
+  if(node){
+    const template=document.createElement('template');
+    template.innerHTML=productListHtml([product]).trim();
+    const fresh=template.content.firstElementChild;
+    if(fresh) node.replaceWith(fresh);
+  }
+  return true;
+}
+function scheduleAdminProductLiveRefresh(table, payload=null, details=null){
+  if(!$('viewProducts')?.classList.contains('active')) return;
+  const productId=adminProductIdFromChange(table,payload,details);
+  clearTimeout(window.__adminStoreRefreshTimer);
+  window.__adminStoreRefreshTimer=setTimeout(async()=>{
+    try{
+      if(productId && await refreshLoadedAdminProduct(productId)) return;
+      // New/deleted products or broad changes only refresh the first 20.
+      if(table === 'products') await loadProducts(true);
+    }catch(err){setStatus(err.message,'error');}
+  },160);
+}
 function ensureCustomerUpdateChannel(){
   if(customerUpdateChannelReady && customerUpdateChannel) return Promise.resolve(customerUpdateChannel);
   if(customerUpdateChannelPromise) return customerUpdateChannelPromise;
@@ -135,18 +177,11 @@ function ensureCustomerUpdateChannel(){
       channel = supabaseClient().channel(STORE_CHANNEL_NAME, {config:{broadcast:{self:false, ack:true}}})
         .on('broadcast',{event:STORE_EVENT_NAME},({payload})=>{
           const tables=Array.isArray(payload?.tables)?payload.tables:[];
-          const productChanged=tables.some(table=>['products','product_variants','offer_items'].includes(table));
-          if(productChanged && $('viewProducts')?.classList.contains('active')){
-            clearTimeout(window.__adminStoreRefreshTimer);
-            window.__adminStoreRefreshTimer=setTimeout(()=>loadProducts(true).catch(err=>setStatus(err.message,'error')),90);
-          }
+          const productTable=tables.find(table=>['products','product_variants','product_images'].includes(table));
+          if(productTable) scheduleAdminProductLiveRefresh(productTable,null,payload?.details||null);
         });
-      ['products','product_variants','offer_items'].forEach(table=>{
-        channel.on('postgres_changes',{event:'*',schema:'public',table},()=>{
-          if(!$('viewProducts')?.classList.contains('active')) return;
-          clearTimeout(window.__adminStoreRefreshTimer);
-          window.__adminStoreRefreshTimer=setTimeout(()=>loadProducts(true).catch(err=>setStatus(err.message,'error')),90);
-        });
+      ['products','product_variants'].forEach(table=>{
+        channel.on('postgres_changes',{event:'*',schema:'public',table},payload=>scheduleAdminProductLiveRefresh(table,payload,null));
       });
       customerUpdateChannel = channel;
       channel.subscribe(status => {
@@ -253,13 +288,23 @@ function normalizeProduct(row){
 }
 function normalizeOffer(raw){ return {id:clean(raw.id), title:clean(raw.title), mrp:price(raw.mrp) || '', price:price(raw.price) || '', quantity:clean(raw.quantity || raw.subtitle), image:clean(raw.image_url), storagePath:clean(raw.storage_path || storagePathFromUrl(raw.image_url)), link:clean(raw.link), active:raw.is_active !== false}; }
 function normalizeOfferItem(raw){ return {id:clean(raw.id), title:clean(raw.title), link:clean(raw.item_link), offerPrice:price(raw.offer_price) || '', discount:price(raw.discount_percentage) || '', validUntil:clean(raw.valid_until), active:raw.is_active !== false}; }
-async function requireAdmin(force = false){
-  if(authorizedAdminUser && !force) return authorizedAdminUser;
-  const {data:{user}} = await supabaseClient().auth.getUser();
-  if(!user) throw new Error('Login required');
+async function verifyAdminUser(user){
+  if(!user?.id) throw new Error('Login required');
   const {data, error} = await supabaseClient().from('admin_users').select('id').eq('id', user.id).maybeSingle();
   if(error) throw error;
   if(!data) throw new Error('This login is not added in admin_users. Add this user UID in Supabase first.');
+  authorizedAdminUser = user;
+  return user;
+}
+async function requireAdmin(force = false){
+  if(authorizedAdminUser && !force) return authorizedAdminUser;
+  const {data, error} = await supabaseClient().auth.getUser();
+  if(error) throw error;
+  const user = data?.user || null;
+  if(!user) throw new Error('Login required');
+  const access = await supabaseClient().from('admin_users').select('id').eq('id', user.id).maybeSingle();
+  if(access.error) throw access.error;
+  if(!access.data) throw new Error('This login is not added in admin_users. Add this user UID in Supabase first.');
   authorizedAdminUser = user;
   return user;
 }
@@ -276,14 +321,14 @@ async function ensureVariantAvailabilityReady(){
 }
 async function validateLogin(email, password){
   if(!email || !password) throw new Error('Enter admin email and password');
-  const {error} = await withTimeout(supabaseClient().auth.signInWithPassword({email, password}), 12000, 'Login timed out. Check internet and try again.');
+  const {error} = await supabaseClient().auth.signInWithPassword({email, password});
   if(error) throw error;
-  authorizedAdminUser=null;
-  await withTimeout(requireAdmin(true), 10000, 'Admin access check timed out. Please try again.');
+  authorizedAdminUser = null;
+  await requireAdmin();
   $('loginScreen').style.display = 'none';
   $('adminShell').classList.remove('is-locked');
   ensureCustomerUpdateChannel();
-  await withTimeout(Promise.all([refreshMeta(), loadProducts(true)]), 15000, 'Admin data is taking too long to load. Tap reload instead of force-refreshing the browser.');
+  await Promise.all([refreshMeta(), loadProducts(true)]);
 }
 async function refreshMeta(){
   await requireAdmin();
@@ -400,54 +445,84 @@ async function ensureSubcategory(categoryId, name){
 }
 async function loadProducts(reset = true){
   await requireAdmin();
+  if(!reset && (productListLoading || nextProductOffset === null || nextProductOffset === undefined)) return;
+  const requestSerial = reset ? ++productListRequestSerial : productListRequestSerial;
   if(reset){ currentProducts = []; currentProductOffset = 0; nextProductOffset = null; }
-  setStatus('Loading products...', 'loading');
-  const categoryName = clean($('productCategoryFilter').value || '');
-  const category = categoryName ? categories.find(c => key(c.name) === key(categoryName)) : null;
-  if(categoryName && !category){ $('productList').innerHTML = '<div class="empty">Category not found. Click Sync/Load again.</div>'; return; }
-  const search = clean($('searchProducts').value);
-  let q = supabaseClient()
-    .from('products')
-    .select(PRODUCT_LIST_SELECT)
-    .range(currentProductOffset, currentProductOffset + 30)
-    .order('updated_at', {ascending:false, nullsFirst:false})
-    .order('created_at', {ascending:false});
-  if(category) q = q.eq('category_id', category.id);
-  if(search){
-    const term = search.replace(/[%_,()]/g,' ').trim();
-    const num = Number(search.replace(/[^0-9.]/g,''));
-    const subMatches = subcategories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
-    const catMatches = categories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
-    let variantProductIds = [];
-    if(term){
-      const variantLookup = await withTimeout(
-        supabaseClient().from('product_variants').select('product_id').or(`label.ilike.%${term}%,size.ilike.%${term}%,color.ilike.%${term}%,unit.ilike.%${term}%`).limit(100),
-        8000,
-        'Product option search timed out.'
-      );
-      if(!variantLookup.error) variantProductIds = [...new Set((variantLookup.data || []).map(row => clean(row.product_id)).filter(Boolean))];
+  const requestOffset = currentProductOffset;
+  productListLoading = true;
+  const loadMoreButton = $('loadMoreProductsBtn');
+  if(loadMoreButton) loadMoreButton.setAttribute('aria-busy','true');
+  setStatus(reset ? 'Loading products...' : 'Loading more products...', 'loading');
+  try{
+    const categoryName = clean($('productCategoryFilter').value || '');
+    const category = categoryName ? categories.find(c => key(c.name) === key(categoryName)) : null;
+    if(categoryName && !category){ if(reset) $('productList').innerHTML = '<div class="empty">Category not found. Click Sync/Load again.</div>'; return; }
+    const search = clean($('searchProducts').value);
+    let q = supabaseClient()
+      .from('products')
+      .select(PRODUCT_LIST_SELECT)
+      .range(requestOffset, requestOffset + ADMIN_PRODUCT_PAGE_SIZE)
+      .order('updated_at', {ascending:false, nullsFirst:false})
+      .order('created_at', {ascending:false});
+    if(category) q = q.eq('category_id', category.id);
+    if(search){
+      const term = search.replace(/[%_,()]/g,' ').trim();
+      const num = Number(search.replace(/[^0-9.]/g,''));
+      const subMatches = subcategories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
+      const catMatches = categories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
+      let variantProductIds = [];
+      if(term){
+        const variantLookup = await supabaseClient().from('product_variants').select('product_id').or(`label.ilike.%${term}%,size.ilike.%${term}%,color.ilike.%${term}%,unit.ilike.%${term}%`).limit(80);
+        if(!variantLookup.error) variantProductIds = [...new Set((variantLookup.data || []).map(row => clean(row.product_id)).filter(Boolean))];
+      }
+      const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`,`barcode.ilike.%${term}%`];
+      if(num) parts.push(`price.eq.${num}`, `mrp.eq.${num}`);
+      if(subMatches.length) parts.push(`subcategory_id.in.(${subMatches.join(',')})`);
+      if(!category && catMatches.length) parts.push(`category_id.in.(${catMatches.join(',')})`);
+      if(variantProductIds.length) parts.push(`id.in.(${variantProductIds.join(',')})`);
+      q = q.or(parts.join(','));
     }
-    const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`,`barcode.ilike.%${term}%`];
-    if(num) parts.push(`price.eq.${num}`, `mrp.eq.${num}`);
-    if(subMatches.length) parts.push(`subcategory_id.in.(${subMatches.join(',')})`);
-    if(!category && catMatches.length) parts.push(`category_id.in.(${catMatches.join(',')})`);
-    if(variantProductIds.length) parts.push(`id.in.(${variantProductIds.join(',')})`);
-    q = q.or(parts.join(','));
+    const {data, error} = await q;
+    if(error) throw error;
+    if(requestSerial !== productListRequestSerial) return;
+    const rows = data || [];
+    const hasMore = rows.length > ADMIN_PRODUCT_PAGE_SIZE;
+    const list = (hasMore ? rows.slice(0, ADMIN_PRODUCT_PAGE_SIZE) : rows).map(normalizeProduct);
+    currentProducts = reset ? list : currentProducts.concat(list.filter(item => !currentProducts.some(existing => existing.id === item.id)));
+    nextProductOffset = hasMore ? requestOffset + list.length : null;
+    currentProductOffset = nextProductOffset ?? requestOffset + list.length;
+    renderProducts(reset, list);
+    if(loadMoreButton) loadMoreButton.classList.toggle('hide', !hasMore);
+    setStatus(`Loaded ${currentProducts.length} product${currentProducts.length === 1 ? '' : 's'} · 20 at a time ✅`,'ok');
+  }finally{
+    if(requestSerial === productListRequestSerial) productListLoading = false;
+    if(loadMoreButton) loadMoreButton.removeAttribute('aria-busy');
   }
-  const {data, error} = await q;
-  if(error) throw error;
-  const rows = data || [];
-  const hasMore = rows.length > 30;
-  const list = (hasMore ? rows.slice(0, 30) : rows).map(normalizeProduct);
-  currentProducts = reset ? list : currentProducts.concat(list);
-  nextProductOffset = hasMore ? currentProductOffset + list.length : null;
-  currentProductOffset = nextProductOffset || 0;
-  renderProducts(reset, list);
-  $('loadMoreProductsBtn').classList.toggle('hide', !nextProductOffset);
-  setStatus(`Loaded ${currentProducts.length} product${currentProducts.length === 1 ? '' : 's'} ✅`,'ok');
+}
+function setupAdminProductAutoLoader(){
+  const button = $('loadMoreProductsBtn');
+  if(!button || button.dataset.autoBound === 'true') return;
+  button.dataset.autoBound = 'true';
+  const loadNext = () => {
+    if(button.classList.contains('hide') || productListLoading || nextProductOffset === null || nextProductOffset === undefined) return;
+    loadProducts(false).catch(err=>setStatus(err.message,'error'));
+  };
+  if('IntersectionObserver' in window){
+    adminProductObserver = new IntersectionObserver(entries => {
+      if(entries.some(entry => entry.isIntersecting)) loadNext();
+    }, {root:null, rootMargin:'320px 0px 320px', threshold:0.01});
+    adminProductObserver.observe(button);
+  }else{
+    adminProductScrollHandler = () => {
+      if(button.classList.contains('hide')) return;
+      if(button.getBoundingClientRect().top <= window.innerHeight + 320) loadNext();
+    };
+    window.addEventListener('scroll', adminProductScrollHandler, {passive:true});
+    window.addEventListener('resize', adminProductScrollHandler, {passive:true});
+  }
 }
 function productListHtml(products){
-  return (products || []).map(p => `<article class="admin-product">
+  return (products || []).map(p => `<article class="admin-product" data-product-row="${esc(p.id)}">
     <img loading="lazy" decoding="async" src="${esc(p.image || (p.images && p.images[0]) || '')}" onerror="this.style.display='none'">
     <div><b>${esc(p.name)}</b><small>${esc(p.category)}${p.subcategory ? ' / ' + esc(p.subcategory) : ''} · ${p.mrp ? `<del>₹${esc(p.mrp)}</del> ` : ''}${p.price ? '₹'+esc(p.price) : 'Ask price'} · ${p.stockStatus === 'out_of_stock' ? 'Out of stock' : p.status !== 'active' ? 'Hidden' : 'Available'}${p.trackInventory ? ` · ${Number(p.stockQuantity || 0)} unit${Number(p.stockQuantity || 0) === 1 ? '' : 's'} in stock` : ''}${p.barcodeEnabled && p.barcode ? ` · Barcode ${esc(p.barcode)}` : ''} · ${esc(p.sizes || 'Standard')}</small></div>
     <button type="button" data-edit="${esc(p.id)}">Edit</button>
@@ -1008,7 +1083,7 @@ function renderAdminOrders(){
 }
 async function loadAdminOrders(){
   await requireAdmin();
-  const {data,error}=await supabaseClient().from('orders').select('id,order_number,customer_name,customer_phone,customer_address,payment_method,payment_status,status,subtotal,total,cancellation_reason,cancelled_at,created_at,updated_at,order_items(id,product_name,color,size,quantity,unit_price,line_total,image_url)').order('created_at',{ascending:false}).limit(200);
+  const {data,error}=await supabaseClient().from('orders').select('id,order_number,customer_name,customer_phone,customer_address,payment_method,payment_status,status,subtotal,total,cancellation_reason,cancelled_at,created_at,updated_at,order_items(id,product_name,color,size,quantity,unit_price,line_total,image_url)').order('created_at',{ascending:false}).limit(20);
   if(error){ if(/orders|relation|schema cache/i.test(error.message||'')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.'); throw error; }
   adminOrders=data||[];
   renderAdminOrders();
@@ -1202,23 +1277,12 @@ function bindEvents(){
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
   });
 }
-async function bootstrapAdmin(){
-  bindEvents(); renderVariantRows([]); updateInventoryControls(); resetOfferItem();
-  $('adminShell').classList.add('is-locked');
-  $('loginScreen').style.display='grid';
-  try{
-    const {data,error}=await withTimeout(supabaseClient().auth.getSession(),7000,'Session check timed out.');
-    if(error) throw error;
-    if(data?.session?.user){
-      authorizedAdminUser=null;
-      await withTimeout(requireAdmin(true),7000,'Admin session check timed out.');
-      $('loginScreen').style.display='none';
-      $('adminShell').classList.remove('is-locked');
-      ensureCustomerUpdateChannel();
-      await withTimeout(Promise.all([refreshMeta(),loadProducts(true)]),15000,'Admin data load timed out.');
-      return;
-    }
-  }catch(_error){}
-  await lockAdmin({signOut:false});
+function bootstrapAdmin(){
+  bindEvents();
+  renderVariantRows([]);
+  updateInventoryControls();
+  resetOfferItem();
+  setupAdminProductAutoLoader();
+  lockAdmin({signOut:false});
 }
 bootstrapAdmin();
