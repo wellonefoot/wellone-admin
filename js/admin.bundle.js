@@ -15,6 +15,13 @@ const slugify = v => clean(v).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/
 const splitList = v => Array.isArray(v) ? v.map(clean).filter(Boolean) : clean(v).split(/[|,\n]+/).map(x=>x.trim()).filter(Boolean);
 const price = v => { v = clean(v).replace(/[₹,]/g,''); return v ? v : null; };
 const rupee = v => price(v) ? '₹' + price(v) : '';
+function withTimeout(promise, ms = 12000, message = 'Network is taking too long. Please try again.'){
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })
+  ]);
+}
 // Add a future selectable policy here, then add its SVG path in policyIconSvg().
 const FIXED_PRODUCT_TERMS = Object.freeze([
   {key:'exchange', label:'7 Day Exchange Policy', description:'Eligible items can be exchanged within 7 days.'},
@@ -269,13 +276,14 @@ async function ensureVariantAvailabilityReady(){
 }
 async function validateLogin(email, password){
   if(!email || !password) throw new Error('Enter admin email and password');
-  const {error} = await supabaseClient().auth.signInWithPassword({email, password});
+  const {error} = await withTimeout(supabaseClient().auth.signInWithPassword({email, password}), 12000, 'Login timed out. Check internet and try again.');
   if(error) throw error;
-  await requireAdmin();
+  authorizedAdminUser=null;
+  await withTimeout(requireAdmin(true), 10000, 'Admin access check timed out. Please try again.');
   $('loginScreen').style.display = 'none';
   $('adminShell').classList.remove('is-locked');
   ensureCustomerUpdateChannel();
-  await Promise.all([refreshMeta(), loadProducts(true)]);
+  await withTimeout(Promise.all([refreshMeta(), loadProducts(true)]), 15000, 'Admin data is taking too long to load. Tap reload instead of force-refreshing the browser.');
 }
 async function refreshMeta(){
   await requireAdmin();
@@ -410,10 +418,20 @@ async function loadProducts(reset = true){
     const num = Number(search.replace(/[^0-9.]/g,''));
     const subMatches = subcategories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
     const catMatches = categories.filter(x => (x.name || '').toLowerCase().includes(search.toLowerCase())).map(x=>x.id);
+    let variantProductIds = [];
+    if(term){
+      const variantLookup = await withTimeout(
+        supabaseClient().from('product_variants').select('product_id').or(`label.ilike.%${term}%,size.ilike.%${term}%,color.ilike.%${term}%,unit.ilike.%${term}%`).limit(100),
+        8000,
+        'Product option search timed out.'
+      );
+      if(!variantLookup.error) variantProductIds = [...new Set((variantLookup.data || []).map(row => clean(row.product_id)).filter(Boolean))];
+    }
     const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`,`barcode.ilike.%${term}%`];
     if(num) parts.push(`price.eq.${num}`, `mrp.eq.${num}`);
     if(subMatches.length) parts.push(`subcategory_id.in.(${subMatches.join(',')})`);
     if(!category && catMatches.length) parts.push(`category_id.in.(${catMatches.join(',')})`);
+    if(variantProductIds.length) parts.push(`id.in.(${variantProductIds.join(',')})`);
     q = q.or(parts.join(','));
   }
   const {data, error} = await q;
@@ -656,6 +674,29 @@ function collectVariantRows(){
     files:Array.isArray(row.__variantFiles)?row.__variantFiles:[]
   })).filter(v => v.color || v.size || v.mrp || v.price || v.existingImages.length || v.files.length);
 }
+function exactOptionValues(value){
+  const values=String(value ?? '').split(/[,|\n]+/).map(clean).filter(Boolean);
+  return [...new Map(values.map(v=>[key(v),v])).values()];
+}
+function expandExactVariantDrafts(rows){
+  const expanded=[];
+  (rows || []).forEach(item=>{
+    const values=exactOptionValues(item.size);
+    if(values.length <= 1){ expanded.push({...item,size:values[0] || item.size}); return; }
+    values.forEach((size,index)=>expanded.push({
+      ...item,
+      id:index===0?item.id:'',
+      size,
+      // Quantity on a comma-separated row is treated as "quantity each", matching Quick Add.
+      stockQuantity:item.stockQuantity,
+      // Keep one colour gallery source; other exact sizes inherit it on the customer site.
+      existingImages:index===0?item.existingImages:[],
+      existingPaths:index===0?item.existingPaths:[],
+      files:index===0?item.files:[]
+    }));
+  });
+  return expanded;
+}
 function validateVariantRows(rows){
   const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
   if(mode==='simple'&&rows.length) throw new Error('Simple products cannot contain separate option rows. Choose an option setup first.');
@@ -752,7 +793,8 @@ async function saveProduct(event){
     const categoryId = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
     const category = categories.find(c => String(c.id) === String(categoryId) && c.active);
     if(!category || !name || !pr) throw new Error('Select category, enter product name and final price');
-    const variantDrafts = collectVariantRows();
+    const rawVariantDrafts = collectVariantRows();
+    const variantDrafts = expandExactVariantDrafts(rawVariantDrafts);
     validateVariantRows(variantDrafts);
     const barcodeEnabled = Boolean($('barcodeEnabled')?.checked);
     const barcode = clean($('barcodeValue')?.value);
@@ -1160,4 +1202,23 @@ function bindEvents(){
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
   });
 }
-bindEvents(); renderVariantRows([]); updateInventoryControls(); resetOfferItem(); lockAdmin({signOut:false});
+async function bootstrapAdmin(){
+  bindEvents(); renderVariantRows([]); updateInventoryControls(); resetOfferItem();
+  $('adminShell').classList.add('is-locked');
+  $('loginScreen').style.display='grid';
+  try{
+    const {data,error}=await withTimeout(supabaseClient().auth.getSession(),7000,'Session check timed out.');
+    if(error) throw error;
+    if(data?.session?.user){
+      authorizedAdminUser=null;
+      await withTimeout(requireAdmin(true),7000,'Admin session check timed out.');
+      $('loginScreen').style.display='none';
+      $('adminShell').classList.remove('is-locked');
+      ensureCustomerUpdateChannel();
+      await withTimeout(Promise.all([refreshMeta(),loadProducts(true)]),15000,'Admin data load timed out.');
+      return;
+    }
+  }catch(_error){}
+  await lockAdmin({signOut:false});
+}
+bootstrapAdmin();
