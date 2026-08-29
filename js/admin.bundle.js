@@ -591,24 +591,28 @@ function renderVariantRows(list = []){
 function variantRowHtml(v,i){
   const color = clean(v.color || v.unit || '');
   const size = clean(v.size || v.label || '');
-  const imgs = (v.images || []).map((url,idx)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${idx}" aria-label="Remove image">×</button></div>`).join('');
-  return `<article class="variant-row" data-variant-id="${esc(v.id || '')}" data-variant-index="${i}" data-existing-images='${esc(JSON.stringify(v.images || []))}' data-existing-paths='${esc(JSON.stringify(v.storagePaths || []))}'>
-    <div class="variant-title"><b>${esc([color,size].filter(Boolean).join(' · ') || `Variant ${i+1}`)}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
+  const images = Array.isArray(v.images) ? v.images : [];
+  const hasOwnImages = images.length > 0;
+  const hasOwnPrice = Boolean(price(v.price) || price(v.mrp));
+  const imgs = images.map((url,idx)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${idx}" aria-label="Remove image">×</button></div>`).join('');
+  return `<article class="variant-row" data-variant-id="${esc(v.id || '')}" data-variant-index="${i}" data-existing-images='${esc(JSON.stringify(images))}' data-existing-paths='${esc(JSON.stringify(v.storagePaths || []))}'>
+    <div class="variant-title"><b>${esc([color,size].filter(Boolean).join(' · ') || `Option ${i+1}`)}</b><button type="button" data-remove-variant="${i}">Remove</button></div>
     <div class="field-row variant-dimensions-row">
-      <label class="variant-color-field">Colour <small class="optional">Optional</small><input class="variant-color" value="${esc(color)}" placeholder="Black / White / Gold"></label>
-      <label><span class="variant-option-name">Size / option</span><input class="variant-size" value="${esc(size)}" placeholder="8 / 9 / Large / 500ml"></label>
+      <label class="variant-color-field">Colour<input class="variant-color" value="${esc(color)}" placeholder="Brown / Blue / Black"></label>
+      <label><span class="variant-option-name">Size / option</span><input class="variant-size" value="${esc(size)}" placeholder="8 / Large / 500ml"></label>
     </div>
-    <small class="variant-combination-help">This exact choice has independent stock, availability, price and optional images.</small>
-    <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') !== 'out_of_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option></select></label><label class="variant-quantity-wrap">Available quantity<input class="variant-quantity" type="number" min="0" step="1" inputmode="numeric" value="${esc(Math.max(0, Number(v.stockQuantity ?? v.stock ?? 0) || 0))}" placeholder="0"></label><label>MRP optional<input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Empty = main MRP"></label></div>
-    <label>Final price optional<input class="variant-price" inputmode="numeric" value="${esc(v.price || '')}" placeholder="Empty = main price"></label>
-    <label class="fake-label">Separate images optional<small class="hint inline-hint">Leave empty to use the main product images.</small></label>
-    <div class="variant-images">${imgs}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label></div>
+    <div class="field-row variant-stock-price-row"><label>Availability<select class="variant-availability"><option value="in_stock" ${clean(v.stockStatus || v.stock_status || 'in_stock') === 'in_stock' ? 'selected' : ''}>Available</option><option value="out_of_stock" ${clean(v.stockStatus || v.stock_status || '') === 'out_of_stock' ? 'selected' : ''}>Out of stock</option><option value="hidden" ${clean(v.stockStatus || v.stock_status || '') === 'hidden' ? 'selected' : ''}>Hide option</option></select></label><label class="variant-quantity-wrap">Quantity<input class="variant-quantity" type="number" min="0" step="1" inputmode="numeric" value="${esc(Math.max(0, Number(v.stockQuantity ?? v.stock ?? 0) || 0))}" placeholder="0"></label></div>
+    <label class="switch-row compact-switch variant-separate-price-row"><span><b>Separate rate for this option</b><small>Leave off to use the main product price.</small></span><input class="variant-separate-price" type="checkbox" ${hasOwnPrice?'checked':''}></label>
+    <div class="field-row variant-price-fields ${hasOwnPrice?'':'hide'}"><label>MRP <small class="optional">Optional</small><input class="variant-mrp" inputmode="numeric" value="${esc(v.mrp || '')}" placeholder="Main MRP"></label><label>Final price<input class="variant-price" inputmode="numeric" value="${esc(v.price || '')}" placeholder="Main price"></label></div>
+    <label class="switch-row compact-switch variant-separate-image-row"><span><b class="variant-image-toggle-title">Separate image</b><small class="variant-image-toggle-help">Off = use the main product image.</small></span><input class="variant-separate-image" type="checkbox" ${hasOwnImages?'checked':''}></label>
+    <div class="variant-image-section ${hasOwnImages?'':'hide'}"><div class="variant-images">${imgs}<label class="mini-upload">+ Image<input class="variant-files" type="file" accept="image/*" hidden></label></div></div>
   </article>`;
 }
 function initializeVariantRow(row){
   if(!row) return;
   row.__variantFiles = [];
   updateVariantRowTitle(row);
+  updateVariantInheritanceUI();
   updateInventoryControls();
 }
 function updateVariantRowTitle(row){
@@ -619,6 +623,56 @@ function updateVariantRowTitle(row){
   const title = row.querySelector('.variant-title b');
   if(title) title.textContent = [color,size].filter(Boolean).join(' · ') || `Variant ${index}`;
 }
+function variantRowOwnImages(row){
+  if(!row) return false;
+  const existing=JSON.parse(row.dataset.existingImages || '[]');
+  const files=Array.isArray(row.__variantFiles)?row.__variantFiles:[];
+  return existing.length>0 || files.length>0;
+}
+function updateVariantInheritanceUI(){
+  const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
+  const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
+  const firstForColor=new Map();
+  rows.forEach(row=>{
+    const color=clean(row.querySelector('.variant-color')?.value);
+    if(mode==='color_option' && color && !firstForColor.has(key(color))) firstForColor.set(key(color),row);
+  });
+  rows.forEach(row=>{
+    const color=clean(row.querySelector('.variant-color')?.value);
+    const isColourLead=mode==='color_option' && color && firstForColor.get(key(color))===row;
+    const imageToggle=row.querySelector('.variant-separate-image');
+    const imageRow=row.querySelector('.variant-separate-image-row');
+    const imageTitle=row.querySelector('.variant-image-toggle-title');
+    const imageHelp=row.querySelector('.variant-image-toggle-help');
+    const imageSection=row.querySelector('.variant-image-section');
+    if(isColourLead){
+      if(imageToggle){ imageToggle.checked=true; imageToggle.disabled=true; }
+      if(imageTitle) imageTitle.textContent=`${color} image`;
+      if(imageHelp) imageHelp.textContent=`Used automatically for every ${variantOptionLabel().toLowerCase()} in ${color}.`;
+      imageRow?.classList.remove('hide');
+      imageSection?.classList.remove('hide');
+    }else{
+      if(imageToggle) imageToggle.disabled=false;
+      if(imageTitle) imageTitle.textContent=mode==='color_option'?'Separate image for this exact option':'Separate image for this option';
+      if(imageHelp) imageHelp.textContent=mode==='color_option'?'Off = inherit the colour image.':'Off = use the main product image.';
+      const show=Boolean(imageToggle?.checked || variantRowOwnImages(row));
+      imageSection?.classList.toggle('hide',!show);
+      imageRow?.classList.toggle('hide',mode==='simple');
+    }
+    const priceToggle=row.querySelector('.variant-separate-price');
+    row.querySelector('.variant-price-fields')?.classList.toggle('hide',!priceToggle?.checked);
+  });
+}
+function buildVariantBulkRateTable(){
+  const table=$('variantBulkRateTable'); if(!table)return;
+  const enabled=Boolean($('variantBulkSeparatePrice')?.checked);
+  const values=String($('variantBulkSizes')?.value || '').split(/[,\n|]+/).map(clean).filter(Boolean);
+  table.classList.toggle('hide',!enabled || !values.length);
+  if(!enabled || !values.length){ table.innerHTML=''; return; }
+  const existing=new Map(Array.from(table.querySelectorAll('[data-bulk-rate]')).map(input=>[key(input.dataset.bulkRate),input.value]));
+  table.innerHTML=`<div class="variant-rate-head"><span>${esc(variantOptionLabel())}</span><span>Final price</span></div>${values.map(value=>`<label class="variant-rate-row"><b>${esc(value)}</b><input data-bulk-rate="${esc(value)}" inputmode="numeric" placeholder="₹" value="${esc(existing.get(key(value)) || '')}"></label>`).join('')}`;
+}
+function bulkRateFor(value){ const input=Array.from($('variantBulkRateTable')?.querySelectorAll('[data-bulk-rate]') || []).find(el=>key(el.dataset.bulkRate)===key(value)); return price(input?.value); }
 function inferredVariantMode(){
   const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
   if(!rows.length)return 'simple';
@@ -641,6 +695,11 @@ function updateVariantModeUI(){
   $('variantBulkColor')?.toggleAttribute('required',colorMode);
   $('variantBulkColor')?.closest('label')?.classList.toggle('hide',!colorMode);
   $('variantList')?.classList.toggle('is-simple-mode',simple);
+  $('variantBulkPanel')?.classList.toggle('hide',simple);
+  $('addVariantBtn')?.classList.toggle('hide',simple);
+  $('variantBulkImageWrap')?.classList.toggle('hide',!colorMode);
+  updateVariantInheritanceUI();
+  buildVariantBulkRateTable();
   renderVariantGroupControls();
 }
 function handleVariantModeChange(){
@@ -671,7 +730,7 @@ function setVariantGroupStatus(color,status){
   $('variantList')?.querySelectorAll('.variant-row').forEach(row=>{
     if(key(row.querySelector('.variant-color')?.value)!==target)return;
     const select=row.querySelector('.variant-availability');
-    if(select)select.value=status==='out_of_stock'?'out_of_stock':'in_stock';
+    if(select && select.value!=='hidden') select.value=status==='out_of_stock'?'out_of_stock':'in_stock';
   });
   updateInventoryControls();
 }
@@ -684,6 +743,7 @@ function nonNegativeInt(value){
 }
 function effectiveVariantStatus(row){
   const manual = clean(row.querySelector('.variant-availability')?.value || 'in_stock');
+  if(manual === 'hidden') return 'hidden';
   if($('trackInventory')?.checked && nonNegativeInt(row.querySelector('.variant-quantity')?.value) <= 0) return 'out_of_stock';
   return manual === 'out_of_stock' ? 'out_of_stock' : 'in_stock';
 }
@@ -698,7 +758,7 @@ function updateInventoryControls(){
     row.querySelector('.variant-quantity-wrap')?.classList.toggle('hide', !track);
     const qty = row.querySelector('.variant-quantity');
     if(qty) qty.disabled = !track;
-    if(track && nonNegativeInt(qty?.value) <= 0){ const availability=row.querySelector('.variant-availability'); if(availability) availability.value='out_of_stock'; }
+    if(track && nonNegativeInt(qty?.value) <= 0){ const availability=row.querySelector('.variant-availability'); if(availability && availability.value!=='hidden') availability.value='out_of_stock'; }
   });
   const productQty = $('productStockQuantity');
   const hasVariants = rows.length > 0;
@@ -727,7 +787,7 @@ function renderVariantImages(row){
   const files=Array.isArray(row.__variantFiles)?row.__variantFiles:[];
   const existingHtml=existing.map((url,index)=>`<div class="variant-img-chip"><img src="${esc(url)}"><button type="button" data-remove-variant-existing="${index}" aria-label="Remove image">×</button></div>`).join('');
   const newHtml=files.map((file,index)=>`<div class="variant-img-chip variant-new-image"><img src="${esc(URL.createObjectURL(file))}"><button type="button" data-remove-variant-new="${index}" aria-label="Remove selected image">×</button></div>`).join('');
-  holder.innerHTML=`${existingHtml}${newHtml}<label class="mini-upload">+ Images<input class="variant-files" type="file" accept="image/*" multiple hidden></label>`;
+  holder.innerHTML=`${existingHtml}${newHtml}<label class="mini-upload">+ Image<input class="variant-files" type="file" accept="image/*" hidden></label>`;
 }
 function collectVariantRows(){
   return Array.from(document.querySelectorAll('.variant-row')).map(row => ({
@@ -735,14 +795,14 @@ function collectVariantRows(){
     id:clean(row.dataset.variantId),
     color:clean(row.querySelector('.variant-color')?.value),
     size:clean(row.querySelector('.variant-size')?.value),
-    mrp:price(row.querySelector('.variant-mrp')?.value),
-    price:price(row.querySelector('.variant-price')?.value),
+    mrp:row.querySelector('.variant-separate-price')?.checked ? price(row.querySelector('.variant-mrp')?.value) : '',
+    price:row.querySelector('.variant-separate-price')?.checked ? price(row.querySelector('.variant-price')?.value) : '',
     stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),
     stockStatus:effectiveVariantStatus(row),
     terms:[],
-    existingImages:JSON.parse(row.dataset.existingImages || '[]'),
-    existingPaths:JSON.parse(row.dataset.existingPaths || '[]'),
-    files:Array.isArray(row.__variantFiles)?row.__variantFiles:[]
+    existingImages:row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingImages || '[]') : [],
+    existingPaths:row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingPaths || '[]') : [],
+    files:row.querySelector('.variant-separate-image')?.checked && Array.isArray(row.__variantFiles)?row.__variantFiles:[]
   })).filter(v => v.color || v.size || v.mrp || v.price || v.existingImages.length || v.files.length);
 }
 function exactOptionValues(value){
@@ -815,22 +875,46 @@ function quickAddColourSizes(){
   const color=clean($('variantBulkColor')?.value);
   const sizes=String($('variantBulkSizes')?.value || '').split(/[,\n|]+/).map(clean).filter(Boolean);
   const qty=nonNegativeInt($('variantBulkQty')?.value);
-  if(mode==='simple'){ setStatus('Choose an option setup first.','error'); $('variantSetupMode')?.focus(); return; }
-  if(mode==='color_option'&&!color){ setStatus('Enter a colour first, for example Blue.','error'); $('variantBulkColor')?.focus(); return; }
+  if(mode==='simple'){ setStatus('Choose One option or Colour + option first.','error'); $('variantSetupMode')?.focus(); return; }
+  if(mode==='color_option'&&!color){ setStatus('Enter a colour first, for example Brown.','error'); $('variantBulkColor')?.focus(); return; }
   if(!sizes.length){ setStatus(`Enter one or more ${variantOptionLabel().toLowerCase()} values.`,'error'); $('variantBulkSizes')?.focus(); return; }
+  if($('variantBulkSeparatePrice')?.checked){
+    const missing=sizes.filter(size=>!bulkRateFor(size));
+    if(missing.length){ setStatus(`Enter the final price for ${missing.join(', ')}.`, 'error'); return; }
+  }
   const existing=new Set(Array.from($('variantList').querySelectorAll('.variant-row')).map(row=>`${key(row.querySelector('.variant-color')?.value || 'default')}::${key(row.querySelector('.variant-size')?.value || 'standard')}`));
-  let added=0, skipped=0;
+  const existingColourLead = mode==='color_option' ? Array.from($('variantList').querySelectorAll('.variant-row')).find(row=>key(row.querySelector('.variant-color')?.value)===key(color)) : null;
+  let added=0, skipped=0, firstAddedRow=null;
   sizes.forEach(size=>{
     const combo=`${key(color || 'default')}::${key(size)}`;
     if(existing.has(combo)){ skipped+=1; return; }
     existing.add(combo);
-    appendVariantRow({color,size,stockQuantity:qty,stockStatus:qty>0?'in_stock':'out_of_stock',mrp:'',price:'',images:[],storagePaths:[],terms:[]});
+    appendVariantRow({color,size,stockQuantity:qty,stockStatus:'in_stock',mrp:'',price:$('variantBulkSeparatePrice')?.checked?bulkRateFor(size):'',images:[],storagePaths:[],terms:[]});
+    const row=$('variantList').lastElementChild;
+    if(row){
+      const separatePrice=row.querySelector('.variant-separate-price');
+      if(separatePrice) separatePrice.checked=Boolean($('variantBulkSeparatePrice')?.checked);
+      row.querySelector('.variant-price-fields')?.classList.toggle('hide',!separatePrice?.checked);
+      if(!firstAddedRow) firstAddedRow=row;
+    }
     added+=1;
   });
+  if(mode==='color_option'){
+    const file=$('variantBulkSharedImage')?.files?.[0];
+    const imageOwner=existingColourLead || firstAddedRow;
+    if(file && imageOwner){ imageOwner.__variantFiles=[file]; const toggle=imageOwner.querySelector('.variant-separate-image'); if(toggle) toggle.checked=true; renderVariantImages(imageOwner); }
+  }
+  updateVariantInheritanceUI();
   updateInventoryControls();
-  if(added){ $('variantBulkSizes').value=''; setStatus(`${color?color+': ':''}added ${added} option${added===1?'':'s'}${skipped?` · ${skipped} duplicate${skipped===1?'':'s'} skipped`:''}. Set each quantity below.`, 'ok'); }
-  else setStatus('Those exact options already exist.','error');
+  if(added){
+    $('variantBulkSizes').value='';
+    if($('variantBulkSharedImage')) $('variantBulkSharedImage').value='';
+    if($('variantBulkSeparatePrice')) $('variantBulkSeparatePrice').checked=false;
+    buildVariantBulkRateTable(); updateVariantModeUI();
+    setStatus(`${color?color+': ':''}added ${added} option${added===1?'':'s'}${skipped?` · ${skipped} duplicate${skipped===1?'':'s'} skipped`:''}.`, 'ok');
+  } else setStatus('Those exact options already exist.','error');
 }
+
 function readVariantRowData(row){
   const color=clean(row.querySelector('.variant-color')?.value);
   const size=clean(row.querySelector('.variant-size')?.value);
@@ -887,10 +971,17 @@ async function saveProduct(event){
     const allImages = currentImages.concat(newUploads.map(x=>x.url));
     const allPaths = currentImages.map(storagePathFromUrl).filter(Boolean).concat(newUploads.map(x=>x.path));
     const availability = clean($('availability')?.value || 'in_stock');
-    const calculatedStock = variantRows.length ? variantRows.reduce((sum,v)=>sum + nonNegativeInt(v.stockQuantity), 0) : nonNegativeInt($('productStockQuantity')?.value);
-    const anyVariantAvailable = variantRows.some(v => v.stockStatus !== 'out_of_stock' && nonNegativeInt(v.stockQuantity) > 0);
+    const visibleVariantRows = variantRows.filter(v => v.stockStatus !== 'hidden');
+    const calculatedStock = variantRows.length ? visibleVariantRows.reduce((sum,v)=>sum + nonNegativeInt(v.stockQuantity), 0) : nonNegativeInt($('productStockQuantity')?.value);
+    const anyVariantAvailable = visibleVariantRows.some(v => v.stockStatus === 'in_stock' && (!trackInventory || nonNegativeInt(v.stockQuantity) > 0));
     const trackedStatus = variantRows.length ? (anyVariantAvailable ? 'in_stock' : 'out_of_stock') : (calculatedStock > 0 ? 'in_stock' : 'out_of_stock');
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:clean($('optionTitle').value), sizes:clean($('sizes').value) || [...new Set(variantRows.map(v=>v.size).filter(Boolean))].join(', ') || 'Standard', colors:clean($('colors').value) || [...new Set(variantRows.map(v=>v.color).filter(Boolean))].join(', ') || 'Default', terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock'), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
+    const mode=clean($('variantSetupMode')?.value || 'simple');
+    const visibleSizes=[...new Set(visibleVariantRows.map(v=>v.size).filter(Boolean))].join(', ');
+    const visibleColors=[...new Set(visibleVariantRows.map(v=>v.color).filter(Boolean))].join(', ');
+    const productSizes=mode==='simple'?'Standard':(visibleSizes || 'Standard');
+    const productColors=mode==='color_option'?(visibleColors || 'Default'):'Default';
+    const allOptionsHidden=variantRows.length>0 && visibleVariantRows.length===0;
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];
@@ -920,7 +1011,7 @@ async function saveProduct(event){
       const deleted=await supabaseClient().from('product_variants').delete().in('id',removedVariantIds); if(deleted.error) throw deleted.error;
     }
     if(variantRows.length){
-      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.size || 'Standard', unit:v.color || '', color:v.color || null, size:v.size || 'Standard', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock:trackInventory ? nonNegativeInt(v.stockQuantity) : 0, stock_status:trackInventory && nonNegativeInt(v.stockQuantity) <= 0 ? 'out_of_stock' : (v.stockStatus || 'in_stock'), sort_order:i}));
+      const rows = variantRows.map((v,i)=>({product_id:productId, label:v.size || 'Standard', unit:v.color || '', color:v.color || null, size:v.size || 'Standard', mrp:v.mrp || null, price:v.price || null, image_url:v.imageUrls[0] || '', image_urls:v.imageUrls, storage_paths:v.storagePaths, terms:v.terms, stock:trackInventory ? nonNegativeInt(v.stockQuantity) : 0, stock_status:v.stockStatus==='hidden' ? 'hidden' : (trackInventory && nonNegativeInt(v.stockQuantity) <= 0 ? 'out_of_stock' : (v.stockStatus || 'in_stock')), sort_order:i}));
       for(let index=0; index<rows.length; index+=1){
         const source=variantRows[index];
         if(source.id){
@@ -1210,6 +1301,8 @@ function bindEvents(){
   $('newProductBtn').addEventListener('click', resetProduct);
   $('addColourSizesBtn')?.addEventListener('click',quickAddColourSizes);
   $('variantBulkSizes')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();quickAddColourSizes();}});
+  $('variantBulkSizes')?.addEventListener('input',buildVariantBulkRateTable);
+  $('variantBulkSeparatePrice')?.addEventListener('change',buildVariantBulkRateTable);
   $('variantSetupMode')?.addEventListener('change',handleVariantModeChange);
   $('optionTitle')?.addEventListener('input',updateVariantModeUI);
   $('barcodeEnabled').addEventListener('change', updateInventoryControls);
@@ -1266,10 +1359,12 @@ function bindEvents(){
     if(e.target.matches('[data-admin-order-status]')){changeAdminOrderStatus(e.target.dataset.adminOrderStatus,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.matches('[data-admin-order-payment]')){changeAdminPayment(e.target.dataset.adminOrderPayment,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.classList.contains('variant-availability')) updateInventoryControls();
-    if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.isArray(row.__variantFiles) ? row.__variantFiles : []; row.__variantFiles.push(...Array.from(e.target.files || [])); e.target.value=''; renderVariantImages(row); } }
+    if(e.target.classList.contains('variant-separate-price')){ const row=e.target.closest('.variant-row'); row?.querySelector('.variant-price-fields')?.classList.toggle('hide',!e.target.checked); }
+    if(e.target.classList.contains('variant-separate-image')){ const row=e.target.closest('.variant-row'); row?.querySelector('.variant-image-section')?.classList.toggle('hide',!e.target.checked); }
+    if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.from(e.target.files || []).slice(0,1); e.target.value=''; const toggle=row.querySelector('.variant-separate-image'); if(toggle) toggle.checked=true; renderVariantImages(row); updateVariantInheritanceUI(); } }
   });
   document.addEventListener('input', e => {
-    if(e.target.classList.contains('variant-color') || e.target.classList.contains('variant-size')){updateVariantRowTitle(e.target.closest('.variant-row'));renderVariantGroupControls();}
+    if(e.target.classList.contains('variant-color') || e.target.classList.contains('variant-size')){updateVariantRowTitle(e.target.closest('.variant-row'));updateVariantInheritanceUI();renderVariantGroupControls();}
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
   });
 }
