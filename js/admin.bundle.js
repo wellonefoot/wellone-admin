@@ -575,7 +575,7 @@ function clearProductImages(){ currentImages = []; newImageFiles = []; $('photoI
 function resetProduct(){
   editingProductId = '';
   productSaveInProgress = false;
-  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; if($('productStockQuantity')) $('productStockQuantity').value = '0'; if($('variantSetupMode')) $('variantSetupMode').value='simple'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false); updateInventoryControls();
+  $('productForm').reset(); $('editId').value = ''; if($('availability')) $('availability').value = 'in_stock'; if($('productStockQuantity')) $('productStockQuantity').value = '0'; if($('variantSetupMode')) $('variantSetupMode').value='simple'; if($('variantBulkSharedImageName')) $('variantBulkSharedImageName').textContent='No image selected'; currentImages = []; newImageFiles = []; renderImagePreviews(); renderTermChecks(); renderVariantRows([]); renderProductSubcategoryOptions(false); updateInventoryControls();
   $('formTitle').textContent = 'Add product'; $('saveBtn').textContent = 'Save Product'; $('deleteBtn').style.display = 'none'; $('cancelEditBtn').classList.add('hide'); switchView('add');
 }
 function renderVariantRows(list = []){
@@ -663,16 +663,34 @@ function updateVariantInheritanceUI(){
     row.querySelector('.variant-price-fields')?.classList.toggle('hide',!priceToggle?.checked);
   });
 }
+function variantRowsAllSeparatePrice(){
+  const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
+  return rows.length>0 && rows.every(row=>Boolean(row.querySelector('.variant-separate-price')?.checked) && Boolean(price(row.querySelector('.variant-price')?.value)));
+}
+function syncMainPricingVisibility(){
+  const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
+  const bulkSeparate=Boolean($('variantBulkSeparatePrice')?.checked);
+  const hide=mode!=='simple' && (bulkSeparate || variantRowsAllSeparatePrice());
+  $('mainPricingSection')?.classList.toggle('hide',hide);
+}
 function buildVariantBulkRateTable(){
   const table=$('variantBulkRateTable'); if(!table)return;
-  const enabled=Boolean($('variantBulkSeparatePrice')?.checked);
+  const rateEnabled=Boolean($('variantBulkSeparatePrice')?.checked);
+  const qtyEnabled=Boolean($('variantBulkSeparateQty')?.checked);
   const values=String($('variantBulkSizes')?.value || '').split(/[,\n|]+/).map(clean).filter(Boolean);
-  table.classList.toggle('hide',!enabled || !values.length);
-  if(!enabled || !values.length){ table.innerHTML=''; return; }
-  const existing=new Map(Array.from(table.querySelectorAll('[data-bulk-rate]')).map(input=>[key(input.dataset.bulkRate),input.value]));
-  table.innerHTML=`<div class="variant-rate-head"><span>${esc(variantOptionLabel())}</span><span>Final price</span></div>${values.map(value=>`<label class="variant-rate-row"><b>${esc(value)}</b><input data-bulk-rate="${esc(value)}" inputmode="numeric" placeholder="₹" value="${esc(existing.get(key(value)) || '')}"></label>`).join('')}`;
+  $('variantBulkQtyWrap')?.classList.toggle('hide',qtyEnabled);
+  table.classList.toggle('hide',(!rateEnabled && !qtyEnabled) || !values.length);
+  syncMainPricingVisibility();
+  if((!rateEnabled && !qtyEnabled) || !values.length){ table.innerHTML=''; return; }
+  const oldRates=new Map(Array.from(table.querySelectorAll('[data-bulk-rate]')).map(input=>[key(input.dataset.bulkRate),input.value]));
+  const oldQtys=new Map(Array.from(table.querySelectorAll('[data-bulk-qty]')).map(input=>[key(input.dataset.bulkQty),input.value]));
+  const cls=rateEnabled && qtyEnabled?'has-rate has-qty':rateEnabled?'has-rate':'has-qty';
+  table.className=`variant-rate-table ${cls}`;
+  table.innerHTML=`<div class="variant-rate-head"><span>${esc(variantOptionLabel())}</span>${rateEnabled?'<span>Final price</span>':''}${qtyEnabled?'<span>Quantity</span>':''}</div>${values.map(value=>`<label class="variant-rate-row"><b>${esc(value)}</b>${rateEnabled?`<input data-bulk-rate="${esc(value)}" inputmode="numeric" placeholder="₹" value="${esc(oldRates.get(key(value)) || '')}">`:''}${qtyEnabled?`<input data-bulk-qty="${esc(value)}" inputmode="numeric" min="0" step="1" type="number" placeholder="0" value="${esc(oldQtys.get(key(value)) || '0')}">`:''}</label>`).join('')}`;
 }
 function bulkRateFor(value){ const input=Array.from($('variantBulkRateTable')?.querySelectorAll('[data-bulk-rate]') || []).find(el=>key(el.dataset.bulkRate)===key(value)); return price(input?.value); }
+function bulkQtyFor(value){ const input=Array.from($('variantBulkRateTable')?.querySelectorAll('[data-bulk-qty]') || []).find(el=>key(el.dataset.bulkQty)===key(value)); return nonNegativeInt(input?.value); }
+
 function inferredVariantMode(){
   const rows=Array.from($('variantList')?.querySelectorAll('.variant-row') || []);
   if(!rows.length)return 'simple';
@@ -698,8 +716,13 @@ function updateVariantModeUI(){
   $('variantBulkPanel')?.classList.toggle('hide',simple);
   $('addVariantBtn')?.classList.toggle('hide',simple);
   $('variantBulkImageWrap')?.classList.toggle('hide',!colorMode);
+  $('productImageStep')?.classList.toggle('hide',colorMode);
+  $('optionTitleRow')?.classList.toggle('hide',simple);
+  if($('productImageStepTitle')) $('productImageStepTitle').textContent=simple?'Product images':'Product images';
+  if($('productImageStepHelp')) $('productImageStepHelp').textContent=simple?'Add the images customers will see for this product.':'These images are reused for every option unless an exact option gets its own separate image.';
   updateVariantInheritanceUI();
   buildVariantBulkRateTable();
+  syncMainPricingVisibility();
   renderVariantGroupControls();
 }
 function handleVariantModeChange(){
@@ -875,6 +898,7 @@ function quickAddColourSizes(){
   const color=clean($('variantBulkColor')?.value);
   const sizes=String($('variantBulkSizes')?.value || '').split(/[,\n|]+/).map(clean).filter(Boolean);
   const qty=nonNegativeInt($('variantBulkQty')?.value);
+  const separateQty=Boolean($('variantBulkSeparateQty')?.checked);
   if(mode==='simple'){ setStatus('Choose One option or Colour + option first.','error'); $('variantSetupMode')?.focus(); return; }
   if(mode==='color_option'&&!color){ setStatus('Enter a colour first, for example Brown.','error'); $('variantBulkColor')?.focus(); return; }
   if(!sizes.length){ setStatus(`Enter one or more ${variantOptionLabel().toLowerCase()} values.`,'error'); $('variantBulkSizes')?.focus(); return; }
@@ -889,7 +913,7 @@ function quickAddColourSizes(){
     const combo=`${key(color || 'default')}::${key(size)}`;
     if(existing.has(combo)){ skipped+=1; return; }
     existing.add(combo);
-    appendVariantRow({color,size,stockQuantity:qty,stockStatus:'in_stock',mrp:'',price:$('variantBulkSeparatePrice')?.checked?bulkRateFor(size):'',images:[],storagePaths:[],terms:[]});
+    appendVariantRow({color,size,stockQuantity:separateQty?bulkQtyFor(size):qty,stockStatus:'in_stock',mrp:'',price:$('variantBulkSeparatePrice')?.checked?bulkRateFor(size):'',images:[],storagePaths:[],terms:[]});
     const row=$('variantList').lastElementChild;
     if(row){
       const separatePrice=row.querySelector('.variant-separate-price');
@@ -909,7 +933,9 @@ function quickAddColourSizes(){
   if(added){
     $('variantBulkSizes').value='';
     if($('variantBulkSharedImage')) $('variantBulkSharedImage').value='';
+    if($('variantBulkSharedImageName')) $('variantBulkSharedImageName').textContent='No image selected';
     if($('variantBulkSeparatePrice')) $('variantBulkSeparatePrice').checked=false;
+    if($('variantBulkSeparateQty')) $('variantBulkSeparateQty').checked=false;
     buildVariantBulkRateTable(); updateVariantModeUI();
     setStatus(`${color?color+': ':''}added ${added} option${added===1?'':'s'}${skipped?` · ${skipped} duplicate${skipped===1?'':'s'} skipped`:''}.`, 'ok');
   } else setStatus('Those exact options already exist.','error');
@@ -945,12 +971,25 @@ async function saveProduct(event){
     const hiddenId = clean($('editId').value);
     const id = clean(editingProductId || hiddenId);
     if(editingProductId && hiddenId && editingProductId !== hiddenId) throw new Error('Product edit state changed. Reopen the product and try again.');
-    const categoryId = clean($('category').value), name = clean($('productName').value), pr = price($('price').value);
+    const categoryId = clean($('category').value), name = clean($('productName').value);
     const category = categories.find(c => String(c.id) === String(categoryId) && c.active);
-    if(!category || !name || !pr) throw new Error('Select category, enter product name and final price');
+    if(!category || !name) throw new Error('Select category and enter the product name');
     const rawVariantDrafts = collectVariantRows();
     const variantDrafts = expandExactVariantDrafts(rawVariantDrafts);
     validateVariantRows(variantDrafts);
+    const mode=clean($('variantSetupMode')?.value || 'simple');
+    let pr=price($('price').value);
+    const firstSeparatePrice=variantDrafts.map(v=>price(v.price)).find(Boolean) || '';
+    if(mode==='simple' && !pr) throw new Error('Enter the final price for this product.');
+    if(mode!=='simple' && !pr) pr=firstSeparatePrice;
+    if(!pr) throw new Error('Enter a main final price, or turn on Separate rates and enter a price for every option.');
+    if(mode==='color_option' && !id){
+      const colourGroups=new Map();
+      variantDrafts.forEach(v=>{ const k=key(v.color); if(k && !colourGroups.has(k)) colourGroups.set(k,v); });
+      for(const lead of colourGroups.values()){
+        if(!lead.existingImages.length && !lead.files.length) throw new Error(`Add one image for ${lead.color}. It will be reused automatically for that colour's options.`);
+      }
+    }
     const barcodeEnabled = Boolean($('barcodeEnabled')?.checked);
     const barcode = clean($('barcodeValue')?.value);
     if(barcodeEnabled && !barcode) throw new Error('Enter a barcode, or turn Barcode identification off.');
@@ -975,13 +1014,13 @@ async function saveProduct(event){
     const calculatedStock = variantRows.length ? visibleVariantRows.reduce((sum,v)=>sum + nonNegativeInt(v.stockQuantity), 0) : nonNegativeInt($('productStockQuantity')?.value);
     const anyVariantAvailable = visibleVariantRows.some(v => v.stockStatus === 'in_stock' && (!trackInventory || nonNegativeInt(v.stockQuantity) > 0));
     const trackedStatus = variantRows.length ? (anyVariantAvailable ? 'in_stock' : 'out_of_stock') : (calculatedStock > 0 ? 'in_stock' : 'out_of_stock');
-    const mode=clean($('variantSetupMode')?.value || 'simple');
     const visibleSizes=[...new Set(visibleVariantRows.map(v=>v.size).filter(Boolean))].join(', ');
     const visibleColors=[...new Set(visibleVariantRows.map(v=>v.color).filter(Boolean))].join(', ');
     const productSizes=mode==='simple'?'Standard':(visibleSizes || 'Standard');
     const productColors=mode==='color_option'?(visibleColors || 'Default'):'Default';
     const allOptionsHidden=variantRows.length>0 && visibleVariantRows.length===0;
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:price($('mrp').value), price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
+    const mainMrp=price($('mrp').value) || variantDrafts.map(v=>price(v.mrp)).find(Boolean) || null;
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:mainMrp, price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];
@@ -1158,7 +1197,7 @@ function renderAdminOrders(){
   });
   box.innerHTML=rows.length?rows.map(order=>{
     const items=Array.isArray(order.order_items)?order.order_items:[];
-    const itemHtml=items.map(item=>`<div class="admin-order-item"><img src="${esc(item.image_url || '')}" alt=""><div><b>${esc(item.product_name)}</b><small>${[item.color?`Colour: ${item.color}`:'',item.size?`Size: ${item.size}`:''].filter(Boolean).join(' · ') || 'Standard'} · Qty ${Number(item.quantity||1)}</small></div><strong>₹${Number(item.line_total||0).toLocaleString('en-IN')}</strong></div>`).join('');
+    const itemHtml=items.map(item=>`<div class="admin-order-item"><img src="${esc(item.image_url || '')}" alt=""><div><b>${esc(item.product_name)}</b><small>${[item.color?`Colour: ${item.color}`:'',item.size?`Size: ${item.size}`:'',item.product_barcode?`Barcode: ${item.product_barcode}`:''].filter(Boolean).join(' · ') || 'Standard'} · Qty ${Number(item.quantity||1)}</small></div><strong>₹${Number(item.line_total||0).toLocaleString('en-IN')}</strong></div>`).join('');
     return `<article class="admin-order-card" data-admin-order="${esc(order.id)}">
       <div class="admin-order-head"><div><span class="admin-order-status status-${esc(order.status)}">${esc(adminOrderStatusLabel(order.status))}</span><h2>${esc(order.order_number)}</h2><small>${esc(adminOrderDate(order.created_at))}</small></div><strong>₹${Number(order.total||0).toLocaleString('en-IN')}</strong></div>
       <div class="admin-order-customer"><b>${esc(order.customer_name)}</b><span>${esc(order.customer_phone)}</span><p>${esc(order.customer_address)}</p></div>
@@ -1170,7 +1209,7 @@ function renderAdminOrders(){
 }
 async function loadAdminOrders(){
   await requireAdmin();
-  const {data,error}=await supabaseClient().from('orders').select('id,order_number,customer_name,customer_phone,customer_address,payment_method,payment_status,status,subtotal,total,cancellation_reason,cancelled_at,created_at,updated_at,order_items(id,product_name,color,size,quantity,unit_price,line_total,image_url)').order('created_at',{ascending:false}).limit(20);
+  const {data,error}=await supabaseClient().from('orders').select('id,order_number,customer_name,customer_phone,customer_address,payment_method,payment_status,status,subtotal,total,cancellation_reason,cancelled_at,created_at,updated_at,order_items(id,product_name,color,size,product_barcode,quantity,unit_price,line_total,image_url)').order('created_at',{ascending:false}).limit(20);
   if(error){ if(/orders|relation|schema cache/i.test(error.message||'')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.'); throw error; }
   adminOrders=data||[];
   renderAdminOrders();
@@ -1303,6 +1342,9 @@ function bindEvents(){
   $('variantBulkSizes')?.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();quickAddColourSizes();}});
   $('variantBulkSizes')?.addEventListener('input',buildVariantBulkRateTable);
   $('variantBulkSeparatePrice')?.addEventListener('change',buildVariantBulkRateTable);
+  $('variantBulkSeparateQty')?.addEventListener('change',()=>{ if($('variantBulkSeparateQty')?.checked && $('trackInventory')) $('trackInventory').checked=true; buildVariantBulkRateTable(); updateInventoryControls(); });
+  $('variantBulkSharedImageBtn')?.addEventListener('click',()=>$('variantBulkSharedImage')?.click());
+  $('variantBulkSharedImage')?.addEventListener('change',()=>{ const file=$('variantBulkSharedImage')?.files?.[0]; if($('variantBulkSharedImageName')) $('variantBulkSharedImageName').textContent=file?file.name:'No image selected'; });
   $('variantSetupMode')?.addEventListener('change',handleVariantModeChange);
   $('optionTitle')?.addEventListener('input',updateVariantModeUI);
   $('barcodeEnabled').addEventListener('change', updateInventoryControls);
@@ -1359,13 +1401,14 @@ function bindEvents(){
     if(e.target.matches('[data-admin-order-status]')){changeAdminOrderStatus(e.target.dataset.adminOrderStatus,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.matches('[data-admin-order-payment]')){changeAdminPayment(e.target.dataset.adminOrderPayment,e.target.value).catch(err=>{setStatus(err.message,'error');loadAdminOrders().catch(()=>{});});return;}
     if(e.target.classList.contains('variant-availability')) updateInventoryControls();
-    if(e.target.classList.contains('variant-separate-price')){ const row=e.target.closest('.variant-row'); row?.querySelector('.variant-price-fields')?.classList.toggle('hide',!e.target.checked); }
+    if(e.target.classList.contains('variant-separate-price')){ const row=e.target.closest('.variant-row'); row?.querySelector('.variant-price-fields')?.classList.toggle('hide',!e.target.checked); syncMainPricingVisibility(); }
     if(e.target.classList.contains('variant-separate-image')){ const row=e.target.closest('.variant-row'); row?.querySelector('.variant-image-section')?.classList.toggle('hide',!e.target.checked); }
     if(e.target.classList.contains('variant-files')){ const row=e.target.closest('.variant-row'); if(row){ row.__variantFiles = Array.from(e.target.files || []).slice(0,1); e.target.value=''; const toggle=row.querySelector('.variant-separate-image'); if(toggle) toggle.checked=true; renderVariantImages(row); updateVariantInheritanceUI(); } }
   });
   document.addEventListener('input', e => {
     if(e.target.classList.contains('variant-color') || e.target.classList.contains('variant-size')){updateVariantRowTitle(e.target.closest('.variant-row'));updateVariantInheritanceUI();renderVariantGroupControls();}
     if(e.target.classList.contains('variant-quantity')) updateInventoryControls();
+    if(e.target.classList.contains('variant-price')) syncMainPricingVisibility();
   });
 }
 async function restoreAdminSession(){
