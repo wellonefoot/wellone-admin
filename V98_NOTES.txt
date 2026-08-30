@@ -1,0 +1,5 @@
+WellOne Admin v98
+- Separate rates quick table now supports MRP and Final Price for every option.
+- Optional crossed MRP is saved into each exact product variant.
+- Separate quantity can still be used at the same time.
+- Main product pricing behavior remains unchanged outside separate-rate mode.

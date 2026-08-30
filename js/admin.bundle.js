@@ -682,12 +682,14 @@ function buildVariantBulkRateTable(){
   table.classList.toggle('hide',(!rateEnabled && !qtyEnabled) || !values.length);
   syncMainPricingVisibility();
   if((!rateEnabled && !qtyEnabled) || !values.length){ table.innerHTML=''; return; }
+  const oldMrps=new Map(Array.from(table.querySelectorAll('[data-bulk-mrp]')).map(input=>[key(input.dataset.bulkMrp),input.value]));
   const oldRates=new Map(Array.from(table.querySelectorAll('[data-bulk-rate]')).map(input=>[key(input.dataset.bulkRate),input.value]));
   const oldQtys=new Map(Array.from(table.querySelectorAll('[data-bulk-qty]')).map(input=>[key(input.dataset.bulkQty),input.value]));
   const cls=rateEnabled && qtyEnabled?'has-rate has-qty':rateEnabled?'has-rate':'has-qty';
   table.className=`variant-rate-table ${cls}`;
-  table.innerHTML=`<div class="variant-rate-head"><span>${esc(variantOptionLabel())}</span>${rateEnabled?'<span>Final price</span>':''}${qtyEnabled?'<span>Quantity</span>':''}</div>${values.map(value=>`<label class="variant-rate-row"><b>${esc(value)}</b>${rateEnabled?`<input data-bulk-rate="${esc(value)}" inputmode="numeric" placeholder="₹" value="${esc(oldRates.get(key(value)) || '')}">`:''}${qtyEnabled?`<input data-bulk-qty="${esc(value)}" inputmode="numeric" min="0" step="1" type="number" placeholder="0" value="${esc(oldQtys.get(key(value)) || '0')}">`:''}</label>`).join('')}`;
+  table.innerHTML=`<div class="variant-rate-head"><span>${esc(variantOptionLabel())}</span>${rateEnabled?'<span>MRP</span><span>Final price</span>':''}${qtyEnabled?'<span>Quantity</span>':''}</div>${values.map(value=>`<label class="variant-rate-row"><b>${esc(value)}</b>${rateEnabled?`<input data-bulk-mrp="${esc(value)}" inputmode="numeric" placeholder="MRP" aria-label="${esc(value)} MRP" value="${esc(oldMrps.get(key(value)) || '')}"><input data-bulk-rate="${esc(value)}" inputmode="numeric" placeholder="Final ₹" aria-label="${esc(value)} final price" value="${esc(oldRates.get(key(value)) || '')}">`:''}${qtyEnabled?`<input data-bulk-qty="${esc(value)}" inputmode="numeric" min="0" step="1" type="number" placeholder="0" aria-label="${esc(value)} quantity" value="${esc(oldQtys.get(key(value)) || '0')}">`:''}</label>`).join('')}`;
 }
+function bulkMrpFor(value){ const input=Array.from($('variantBulkRateTable')?.querySelectorAll('[data-bulk-mrp]') || []).find(el=>key(el.dataset.bulkMrp)===key(value)); return price(input?.value); }
 function bulkRateFor(value){ const input=Array.from($('variantBulkRateTable')?.querySelectorAll('[data-bulk-rate]') || []).find(el=>key(el.dataset.bulkRate)===key(value)); return price(input?.value); }
 function bulkQtyFor(value){ const input=Array.from($('variantBulkRateTable')?.querySelectorAll('[data-bulk-qty]') || []).find(el=>key(el.dataset.bulkQty)===key(value)); return nonNegativeInt(input?.value); }
 
@@ -913,7 +915,7 @@ function quickAddColourSizes(){
     const combo=`${key(color || 'default')}::${key(size)}`;
     if(existing.has(combo)){ skipped+=1; return; }
     existing.add(combo);
-    appendVariantRow({color,size,stockQuantity:separateQty?bulkQtyFor(size):qty,stockStatus:'in_stock',mrp:'',price:$('variantBulkSeparatePrice')?.checked?bulkRateFor(size):'',images:[],storagePaths:[],terms:[]});
+    appendVariantRow({color,size,stockQuantity:separateQty?bulkQtyFor(size):qty,stockStatus:'in_stock',mrp:$('variantBulkSeparatePrice')?.checked?bulkMrpFor(size):'',price:$('variantBulkSeparatePrice')?.checked?bulkRateFor(size):'',images:[],storagePaths:[],terms:[]});
     const row=$('variantList').lastElementChild;
     if(row){
       const separatePrice=row.querySelector('.variant-separate-price');
