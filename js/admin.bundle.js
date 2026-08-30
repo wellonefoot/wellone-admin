@@ -579,7 +579,20 @@ function resetProduct(){
   $('formTitle').textContent = 'Add product'; $('saveBtn').textContent = 'Save Product'; $('deleteBtn').style.display = 'none'; $('cancelEditBtn').classList.add('hide'); switchView('add');
 }
 function renderVariantRows(list = []){
-  const rows = Array.isArray(list) ? list : [];
+  const sourceRows = Array.isArray(list) ? list : [];
+  // Colour + option products use one shared colour image. Keep that image on the
+  // first row only in the editor so admins never need to manage it size-by-size.
+  const rows = sourceRows.map(v=>({...v, images:Array.isArray(v?.images)?[...v.images]:[], storagePaths:Array.isArray(v?.storagePaths)?[...v.storagePaths]:[]}));
+  const colourGroups=new Map();
+  rows.forEach(row=>{ const color=clean(row.color || row.unit || ''); if(!color)return; const k=key(color); if(!colourGroups.has(k)) colourGroups.set(k,[]); colourGroups.get(k).push(row); });
+  colourGroups.forEach(group=>{
+    const colourImageSource=group.find(row=>Array.isArray(row.images) && row.images.length);
+    if(!colourImageSource)return;
+    const lead=group[0];
+    lead.images=[...colourImageSource.images];
+    lead.storagePaths=Array.isArray(colourImageSource.storagePaths)?[...colourImageSource.storagePaths]:[];
+    group.slice(1).forEach(row=>{ row.images=[]; row.storagePaths=[]; });
+  });
   $('variantList').innerHTML = rows.length
     ? rows.map((v,i)=>variantRowHtml(v || {},i)).join('')
     : '<div class="empty variant-empty"><b>No separate options added.</b><span>Keep this as a simple product, or choose an option setup above.</span></div>';
@@ -653,11 +666,18 @@ function updateVariantInheritanceUI(){
       imageSection?.classList.remove('hide');
     }else{
       if(imageToggle) imageToggle.disabled=false;
-      if(imageTitle) imageTitle.textContent=mode==='color_option'?'Separate image for this exact option':'Separate image for this option';
-      if(imageHelp) imageHelp.textContent=mode==='color_option'?'Off = inherit the colour image.':'Off = use the main product image.';
-      const show=Boolean(imageToggle?.checked || variantRowOwnImages(row));
-      imageSection?.classList.toggle('hide',!show);
-      imageRow?.classList.toggle('hide',mode==='simple');
+      if(mode==='color_option'){
+        // Images belong to the colour group, never to an individual size row.
+        if(imageToggle) imageToggle.checked=false;
+        imageRow?.classList.add('hide');
+        imageSection?.classList.add('hide');
+      }else{
+        if(imageTitle) imageTitle.textContent='Separate image for this option';
+        if(imageHelp) imageHelp.textContent='Off = use the main product image.';
+        const show=Boolean(imageToggle?.checked || variantRowOwnImages(row));
+        imageSection?.classList.toggle('hide',!show);
+        imageRow?.classList.toggle('hide',mode==='simple');
+      }
     }
     const priceToggle=row.querySelector('.variant-separate-price');
     row.querySelector('.variant-price-fields')?.classList.toggle('hide',!priceToggle?.checked);
@@ -868,9 +888,48 @@ function validateVariantRows(rows){
 }
 async function collectVariantsPayload(rows, uploadedPaths = []){
   const variants=[];
+  const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
+  const colourAssets=new Map();
+
+  // Resolve every colour image once, then reuse the exact same URL/storage path
+  // for every size under that colour. A newly selected colour image replaces the
+  // old colour image instead of becoming a size-specific image.
+  if(mode==='color_option'){
+    const groups=new Map();
+    (rows || []).forEach(item=>{ const k=key(item.color); if(!k)return; if(!groups.has(k))groups.set(k,[]); groups.get(k).push(item); });
+    for(const [groupKey,group] of groups){
+      const newSource=group.find(item=>Array.isArray(item.files) && item.files.length);
+      const existingSource=group.find(item=>Array.isArray(item.existingImages) && item.existingImages.length);
+      const source=newSource || existingSource;
+      if(!source){ colourAssets.set(groupKey,{imageUrls:[],storagePaths:[]}); continue; }
+      let imageUrls=[];
+      let storagePaths=[];
+      if(newSource){
+        const uploaded=await uploadFiles(newSource.files.slice(0,1),'variants');
+        uploadedPaths.push(...uploaded.map(x=>x.path));
+        imageUrls=uploaded.map(x=>x.url).slice(0,1);
+        storagePaths=uploaded.map(x=>x.path).slice(0,1);
+      }else{
+        imageUrls=(source.existingImages || []).slice(0,1);
+        storagePaths=(source.existingPaths || []).slice(0,1);
+      }
+      colourAssets.set(groupKey,{imageUrls,storagePaths});
+    }
+  }
+
   for(const item of rows){
-    const uploaded=await uploadFiles(item.files,'variants');
-    uploadedPaths.push(...uploaded.map(x=>x.path));
+    let imageUrls=[];
+    let storagePaths=[];
+    if(mode==='color_option'){
+      const shared=colourAssets.get(key(item.color)) || {imageUrls:[],storagePaths:[]};
+      imageUrls=[...shared.imageUrls];
+      storagePaths=[...shared.storagePaths];
+    }else{
+      const uploaded=await uploadFiles(item.files,'variants');
+      uploadedPaths.push(...uploaded.map(x=>x.path));
+      imageUrls=item.existingImages.concat(uploaded.map(x=>x.url));
+      storagePaths=item.existingPaths.concat(uploaded.map(x=>x.path));
+    }
     variants.push({
       id:item.id || '',
       color:item.color,
@@ -880,8 +939,8 @@ async function collectVariantsPayload(rows, uploadedPaths = []){
       stockQuantity:item.stockQuantity || 0,
       stockStatus:item.stockStatus || 'in_stock',
       terms:item.terms,
-      imageUrls:item.existingImages.concat(uploaded.map(x=>x.url)),
-      storagePaths:item.existingPaths.concat(uploaded.map(x=>x.path))
+      imageUrls,
+      storagePaths
     });
   }
   return variants;
@@ -985,11 +1044,11 @@ async function saveProduct(event){
     if(mode==='simple' && !pr) throw new Error('Enter the final price for this product.');
     if(mode!=='simple' && !pr) pr=firstSeparatePrice;
     if(!pr) throw new Error('Enter a main final price, or turn on Separate rates and enter a price for every option.');
-    if(mode==='color_option' && !id){
+    if(mode==='color_option'){
       const colourGroups=new Map();
       variantDrafts.forEach(v=>{ const k=key(v.color); if(k && !colourGroups.has(k)) colourGroups.set(k,v); });
       for(const lead of colourGroups.values()){
-        if(!lead.existingImages.length && !lead.files.length) throw new Error(`Add one image for ${lead.color}. It will be reused automatically for that colour's options.`);
+        if(!lead.existingImages.length && !lead.files.length) throw new Error(`Add one image for ${lead.color}. It will be reused automatically for every option in that colour.`);
       }
     }
     const barcodeEnabled = Boolean($('barcodeEnabled')?.checked);

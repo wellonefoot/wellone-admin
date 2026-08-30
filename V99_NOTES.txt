@@ -1,0 +1,7 @@
+WellOne Admin v99
+
+- Colour + option now uses one shared image per colour group.
+- The colour image is uploaded once and stored on every exact size variant in that colour.
+- Individual size image controls are hidden in colour mode to prevent inconsistent images.
+- Existing colour products are normalized in the editor to one colour image.
+- Separate MRP/final-price and quantity behavior from v98 is preserved.

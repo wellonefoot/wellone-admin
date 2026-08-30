@@ -1,11 +1,11 @@
 'use strict';
-const CACHE_VERSION='wellone-admin-v98-variant-mrp-pricing';
+const CACHE_VERSION='wellone-admin-v99-colour-group-images';
 const SHELL_CACHE=`${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE=`${CACHE_VERSION}-runtime`;
 const IMAGE_CACHE=`${CACHE_VERSION}-images`;
 const SHELL_ASSETS=[
-  './','./index.html','./css/admin.css?v=98','./js/admin-config.js?v=98','./js/admin.bundle.js?v=98','./js/pwa-install.js?v=98',
-  './manifest.webmanifest','./assets/logo.png?v=98','./assets/favicon/favicon.ico'
+  './','./index.html','./css/admin.css?v=99','./js/admin-config.js?v=99','./js/admin.bundle.js?v=99','./js/pwa-install.js?v=99',
+  './manifest.webmanifest','./assets/logo.png?v=99','./assets/favicon/favicon.ico'
 ];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(SHELL_CACHE).then(cache=>Promise.allSettled(SHELL_ASSETS.map(x=>cache.add(x)))).then(()=>self.skipWaiting()));
