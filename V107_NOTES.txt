@@ -1,0 +1,5 @@
+WellOne admin v107
+- Admin can create Sales Staff or Management IDs from Employees.
+- Password viewing/suspension/multi-device behavior retained.
+- Secure storage cleanup queue is processed automatically by Admin on load.
+- Admin user creation remains Supabase-only.

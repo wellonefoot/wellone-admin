@@ -387,7 +387,7 @@ set search_path=public,extensions
 as $$
 declare v_secret text;
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then
     raise exception 'Admin login required.';
   end if;
 
@@ -425,7 +425,7 @@ declare
   v_secret text;
   v_password_changed boolean := nullif(p_password,'') is not null;
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then
     raise exception 'Admin login required.';
   end if;
   if nullif(btrim(p_username),'') is null then raise exception 'Enter employee username.'; end if;
@@ -480,7 +480,7 @@ declare
   v_hash text;
   v_secret text;
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then
     raise exception 'Admin login required.';
   end if;
   select e.password_hash into v_hash from public.employees e where e.id=p_employee_id;
@@ -504,7 +504,7 @@ security definer
 set search_path=public,extensions
 as $$
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then
     raise exception 'Admin login required.';
   end if;
   update public.employees set is_active=p_active,updated_at=now() where id=p_employee_id;
@@ -631,7 +631,7 @@ returns table(
 language plpgsql security definer set search_path=public,extensions as $$
 declare v_secret text;
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then raise exception 'Admin login required.'; end if;
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then raise exception 'Admin login required.'; end if;
   select s.secret into v_secret from public.employee_credential_secret s where s.singleton=true;
   return query
   select e.id,e.username,e.portal_role,e.is_active,
@@ -653,7 +653,7 @@ returns uuid
 language plpgsql security definer set search_path=public,extensions as $$
 declare v_id uuid; v_secret text; v_old_role text; v_password_changed boolean:=nullif(p_password,'') is not null; v_role text:=lower(btrim(coalesce(p_portal_role,'sales')));
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then raise exception 'Admin login required.'; end if;
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then raise exception 'Admin login required.'; end if;
   if v_role not in ('sales','management') then raise exception 'Select Sales Staff or Management.'; end if;
   if nullif(btrim(p_username),'') is null then raise exception 'Enter staff username.'; end if;
   if p_employee_id is null and length(coalesce(p_password,''))<4 then raise exception 'Password must be at least 4 characters.'; end if;
@@ -861,7 +861,7 @@ create or replace function public.admin_storage_cleanup_pending(p_limit integer 
 returns table(id bigint,storage_path text)
 language plpgsql security definer set search_path=public,extensions as $$
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then raise exception 'Admin login required.'; end if;
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then raise exception 'Admin login required.'; end if;
   -- A save can temporarily delete/reinsert rows. Drop queue entries that are still referenced now.
   delete from public.storage_cleanup_queue q
    where exists(select 1 from public.product_images i where i.storage_path=q.storage_path)
@@ -874,7 +874,7 @@ grant execute on function public.admin_storage_cleanup_pending(integer) to authe
 create or replace function public.admin_storage_cleanup_done(p_ids bigint[])
 returns void language plpgsql security definer set search_path=public,extensions as $$
 begin
-  if auth.uid() is null or not exists(select 1 from public.admin_users where id=auth.uid()) then raise exception 'Admin login required.'; end if;
+  if auth.uid() is null or not exists(select 1 from public.admin_users au where au.id=auth.uid()) then raise exception 'Admin login required.'; end if;
   delete from public.storage_cleanup_queue where id=any(coalesce(p_ids,'{}'::bigint[]));
 end; $$;
 revoke all on function public.admin_storage_cleanup_done(bigint[]) from public;
