@@ -1,4 +1,4 @@
-/* WellOne Admin v94 — application code. Supabase config is loaded separately from admin-config.js. */
+/* WellOne Admin v100 — application code. Supabase config is loaded separately from admin-config.js. */
 'use strict';
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').trim().replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
@@ -38,14 +38,14 @@ function policyIconSvg(type){
 }
 const bucket = () => ADMIN_CONFIG.storageBucket || 'product-images';
 const PRODUCT_SELECT = `
-  id,name,slug,description,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
+  id,name,slug,description,search_keywords,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
   categories(id,name,image_url,storage_path,description),
   subcategories(id,name),
   product_images(id,image_url,storage_path,sort_order),
   product_variants(id,label,color,size,mrp,price,image_url,image_urls,storage_paths,terms,unit,stock,stock_status,sort_order)
 `;
 const PRODUCT_LIST_SELECT = `
-  id,name,slug,description,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
+  id,name,slug,description,search_keywords,mrp,price,main_image_url,status,stock_status,stock_quantity,track_inventory,barcode,barcode_enabled,sizes,colors,option_title,terms,created_at,updated_at,sort_order,
   categories(id,name,image_url,storage_path,description),
   subcategories(id,name)
 `;
@@ -271,7 +271,7 @@ function normalizeProduct(row){
     id: clean(row.id), categoryId: row.category_id || row.categories?.id || '', category: clean(row.categories?.name || row.category || ''), subcategoryId: row.subcategory_id || row.subcategories?.id || '', subcategory: clean(row.subcategories?.name || row.subcategory || ''),
     name: clean(row.name), price: price(row.price) || '', mrp: price(row.mrp) || '', image: clean(row.main_image_url || imgs[0]?.image_url || ''),
     images: imgs.map(x=>x.image_url).filter(Boolean), imagePaths: imgs.map(x=>x.storage_path || storagePathFromUrl(x.image_url)).filter(Boolean),
-    sizes: clean(row.sizes || 'Standard'), colors: clean(row.colors || 'Default'), optionTitle: clean(row.option_title || ''), description: clean(row.description || ''), terms: splitList(row.terms || []), status: clean(row.status || 'active'), stockStatus: clean(row.stock_status || 'in_stock'), stockQuantity: Math.max(0, Number(row.stock_quantity || 0) || 0), trackInventory: row.track_inventory === true, barcode: clean(row.barcode || ''), barcodeEnabled: row.barcode_enabled === true,
+    sizes: clean(row.sizes || 'Standard'), colors: clean(row.colors || 'Default'), optionTitle: clean(row.option_title || ''), description: clean(row.description || ''), searchKeywords: clean(row.search_keywords || ''), terms: splitList(row.terms || []), status: clean(row.status || 'active'), stockStatus: clean(row.stock_status || 'in_stock'), stockQuantity: Math.max(0, Number(row.stock_quantity || 0) || 0), trackInventory: row.track_inventory === true, barcode: clean(row.barcode || ''), barcodeEnabled: row.barcode_enabled === true,
     variants: variants.map(v => {
       const urls = splitList(v.image_urls || v.image_url || []);
       const paths = splitList(v.storage_paths || []);
@@ -304,11 +304,12 @@ async function requireAdmin(force = false){
 async function ensureVariantAvailabilityReady(){
   const [variantRes, productRes] = await Promise.all([
     supabaseClient().from('product_variants').select('stock_status,stock,color,size').limit(1),
-    supabaseClient().from('products').select('barcode,barcode_enabled,track_inventory,stock_quantity').limit(1)
+    supabaseClient().from('products').select('barcode,barcode_enabled,track_inventory,stock_quantity,search_keywords').limit(1)
   ]);
   const error = variantRes.error || productRes.error;
   if(!error) return;
   if(/color|size/i.test(error.message || '')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.');
+  if(/search_keywords/i.test(error.message || '')) throw new Error('Run supabase/14_search_keywords_staff_manage.sql in Supabase first.');
   if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql and then 08_orders_employees_variants.sql in Supabase first.');
   throw error;
 }
@@ -471,7 +472,7 @@ async function loadProducts(reset = true){
         const variantLookup = await supabaseClient().from('product_variants').select('product_id').or(`label.ilike.%${term}%,size.ilike.%${term}%,color.ilike.%${term}%,unit.ilike.%${term}%`).limit(80);
         if(!variantLookup.error) variantProductIds = [...new Set((variantLookup.data || []).map(row => clean(row.product_id)).filter(Boolean))];
       }
-      const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`,`barcode.ilike.%${term}%`];
+      const parts = [`name.ilike.%${term}%`,`description.ilike.%${term}%`,`search_keywords.ilike.%${term}%`,`barcode.ilike.%${term}%`];
       if(num) parts.push(`price.eq.${num}`, `mrp.eq.${num}`);
       if(subMatches.length) parts.push(`subcategory_id.in.(${subMatches.join(',')})`);
       if(!category && catMatches.length) parts.push(`category_id.in.(${catMatches.join(',')})`);
@@ -672,11 +673,11 @@ function updateVariantInheritanceUI(){
         imageRow?.classList.add('hide');
         imageSection?.classList.add('hide');
       }else{
-        if(imageTitle) imageTitle.textContent='Separate image for this option';
-        if(imageHelp) imageHelp.textContent='Off = use the main product image.';
-        const show=Boolean(imageToggle?.checked || variantRowOwnImages(row));
-        imageSection?.classList.toggle('hide',!show);
-        imageRow?.classList.toggle('hide',mode==='simple');
+        if(imageTitle) imageTitle.textContent='Image for this option';
+        if(imageHelp) imageHelp.textContent='Optional · choose an image here to override the main product image for this exact option.';
+        if(imageToggle){ imageToggle.checked=true; imageToggle.disabled=true; }
+        imageSection?.classList.toggle('hide',mode==='simple');
+        imageRow?.classList.add('hide');
       }
     }
     const priceToggle=row.querySelector('.variant-separate-price');
@@ -845,9 +846,9 @@ function collectVariantRows(){
     stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),
     stockStatus:effectiveVariantStatus(row),
     terms:[],
-    existingImages:row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingImages || '[]') : [],
-    existingPaths:row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingPaths || '[]') : [],
-    files:row.querySelector('.variant-separate-image')?.checked && Array.isArray(row.__variantFiles)?row.__variantFiles:[]
+    existingImages:clean($('variantSetupMode')?.value || inferredVariantMode())==='option' || row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingImages || '[]') : [],
+    existingPaths:clean($('variantSetupMode')?.value || inferredVariantMode())==='option' || row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingPaths || '[]') : [],
+    files:(clean($('variantSetupMode')?.value || inferredVariantMode())==='option' || row.querySelector('.variant-separate-image')?.checked) && Array.isArray(row.__variantFiles)?row.__variantFiles:[]
   })).filter(v => v.color || v.size || v.mrp || v.price || v.existingImages.length || v.files.length);
 }
 function exactOptionValues(value){
@@ -859,6 +860,8 @@ function expandExactVariantDrafts(rows){
   (rows || []).forEach(item=>{
     const values=exactOptionValues(item.size);
     if(values.length <= 1){ expanded.push({...item,size:values[0] || item.size}); return; }
+    const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
+    if(mode==='option' && (item.existingImages?.length || item.files?.length)) throw new Error('Add comma-separated options as separate rows when using separate images, so each option keeps its own image.');
     values.forEach((size,index)=>expanded.push({
       ...item,
       id:index===0?item.id:'',
@@ -1014,7 +1017,7 @@ async function openProduct(id){
   const p = normalizeProduct(data);
   if(!p || !p.id) return;
   editingProductId = p.id;
-  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock'); if($('barcodeEnabled')) $('barcodeEnabled').checked = p.barcodeEnabled; if($('barcodeValue')) $('barcodeValue').value = p.barcode || ''; if($('trackInventory')) $('trackInventory').checked = p.trackInventory; if($('productStockQuantity')) $('productStockQuantity').value = String(p.stockQuantity || 0);
+  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('searchKeywords')) $('searchKeywords').value = p.searchKeywords || ''; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock'); if($('barcodeEnabled')) $('barcodeEnabled').checked = p.barcodeEnabled; if($('barcodeValue')) $('barcodeValue').value = p.barcode || ''; if($('trackInventory')) $('trackInventory').checked = p.trackInventory; if($('productStockQuantity')) $('productStockQuantity').value = String(p.stockQuantity || 0);
   currentImages = p.images && p.images.length ? p.images : (p.image ? [p.image] : []); newImageFiles = []; renderImagePreviews(); renderTermChecks(p.terms);
   renderVariantRows(p.variants || []);
   $('formTitle').textContent = 'Edit product'; $('saveBtn').textContent = 'Update Product'; $('deleteBtn').style.display = 'inline-flex'; $('cancelEditBtn').classList.remove('hide'); switchView('add');
@@ -1081,7 +1084,7 @@ async function saveProduct(event){
     const productColors=mode==='color_option'?(visibleColors || 'Default'):'Default';
     const allOptionsHidden=variantRows.length>0 && visibleVariantRows.length===0;
     const mainMrp=price($('mrp').value) || variantDrafts.map(v=>price(v.mrp)).find(Boolean) || null;
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), mrp:mainMrp, price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), search_keywords:[...new Map(splitList($('searchKeywords')?.value || '').map(value=>[key(value),clean(value)])).values()].join(', '), mrp:mainMrp, price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];
