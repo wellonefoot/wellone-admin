@@ -15,7 +15,7 @@
       }catch(_error){}
     })();
   </script>
-<link href="css/admin.css?v=105" rel="stylesheet"/>
+<link href="css/admin.css?v=107" rel="stylesheet"/>
 <link href="./assets/favicon/favicon.ico" rel="icon" type="image/x-icon"/>
 <link href="./assets/favicon/apple-icon-180x180.png" rel="apple-touch-icon"/>
 <link href="manifest.webmanifest" rel="manifest"/>
@@ -28,11 +28,11 @@
 </head>
 <body>
 <div aria-hidden="true" class="app-launch-splash" id="pwaLaunchSplash">
-<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=105" width="1100"/>
+<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=107" width="1100"/>
 </div>
 <section class="login-screen" id="loginScreen">
 <form class="login-card" id="loginForm">
-<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=105" width="1100"/>
+<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=107" width="1100"/>
 <p class="tag">secure admin</p>
 <h1>Admin</h1>
 <input autocomplete="username" id="adminEmailInput" placeholder="Admin email" required="" type="email"/>
@@ -43,7 +43,7 @@
 </section>
 <div class="admin-shell is-locked" id="adminShell">
 <header class="admin-head">
-<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=105" width="1100"/></a>
+<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=107" width="1100"/></a>
 <button class="menu-toggle" id="menuToggle" type="button">☰</button>
 <nav class="admin-menu" id="adminMenu">
 <button class="active" data-view="products" type="button">Products</button>
@@ -173,13 +173,15 @@
 </section>
 
 <section class="view-panel clean-card" id="viewEmployees">
-<div class="panel-head"><div><p class="tag">staff access</p><h1>Employees</h1><p>Create and manage usernames/passwords for the separately deployed Employee site.</p></div></div>
+<div class="panel-head"><div><p class="tag">staff access</p><h1>Employees</h1><p>Create separate Sales Staff and Management accounts, view credentials, and suspend or restore access.</p></div></div>
+<div class="employee-admin-note"><b>Admin accounts stay Supabase-only.</b><span>Admin email/password accounts are created and managed only in Supabase Authentication + the admin_users table. This page only manages staff accounts.</span></div>
 <form class="employee-form" id="employeeForm">
 <input id="employeeId" type="hidden"/>
-<div class="field-row two"><label>Username<input autocomplete="off" id="employeeUsername" placeholder="employee1" required=""/></label><label>Password <small class="optional">Leave blank when editing to keep current password</small><input autocomplete="new-password" id="employeePassword" placeholder="Create password" type="password"/></label></div>
+<div class="field-row three"><label>Staff username / login ID<input autocomplete="off" id="employeeUsername" placeholder="employee1" required=""/></label><label>Account type<select id="employeePortalRole"><option value="sales">Sales Staff</option><option value="management">Management</option></select><small class="hint">Sales IDs work only on the Sales Staff page. Management IDs work only on the Management page.</small></label><label>Password <small class="optional">Leave blank when editing to keep the current password</small><input autocomplete="new-password" id="employeePassword" placeholder="Create or reset password" type="password"/></label></div>
 <div class="save-row"><button class="ghost-btn" id="employeeResetBtn" type="button">Reset</button><button class="submit-btn" type="submit">Save Employee</button></div>
 </form>
-<div class="employee-list-head"><h2>Employee list</h2><p>Usernames and the passwords set from this admin browser are shown below.</p></div><div class="employee-list" id="employeeList"><div class="empty">No employees loaded.</div></div>
+<div class="employee-list-head"><div><h2>All staff accounts</h2><p>Active accounts are shown first. Passwords are encrypted in Supabase and only returned through the admin-only function.</p></div><div class="employee-summary" id="employeeSummary"></div></div>
+<div class="employee-list" id="employeeList"><div class="empty">No employees loaded.</div></div>
 </section>
 <section class="view-panel clean-card" id="viewOffers">
 <div class="panel-head"><div><p class="tag">promotions</p><h1>Offers</h1><p>Manage promotional products and independent sliding banners from one place.</p></div></div>
@@ -229,8 +231,8 @@
 </div>
 <div class="busy-overlay" id="busy"><div><b></b><span id="busyText">Working...</span></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/admin-config.js?v=105"></script>
-<script src="js/admin.bundle.js?v=105"></script>
-<script src="js/pwa-install.js?v=105"></script>
+<script src="js/admin-config.js?v=107"></script>
+<script src="js/admin.bundle.js?v=107"></script>
+<script src="js/pwa-install.js?v=107"></script>
 </body>
 </html>

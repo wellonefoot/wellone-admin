@@ -312,11 +312,27 @@ async function ensureVariantAvailabilityReady(){
   if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql and then 08_orders_employees_variants.sql in Supabase first.');
   throw error;
 }
+async function cleanupQueuedStorage(){
+  try{
+    await requireAdmin();
+    for(let round=0;round<8;round+=1){
+      const pending=await supabaseClient().rpc('admin_storage_cleanup_pending',{p_limit:100});
+      if(pending.error){ if(/admin_storage_cleanup_pending|function|schema cache/i.test(pending.error.message||'')) return; throw pending.error; }
+      const rows=pending.data||[]; if(!rows.length) return;
+      const paths=rows.map(row=>clean(row.storage_path)).filter(Boolean);
+      if(paths.length) await removeStorage(paths);
+      const ids=rows.map(row=>Number(row.id)).filter(Number.isFinite);
+      if(ids.length){ const done=await supabaseClient().rpc('admin_storage_cleanup_done',{p_ids:ids}); if(done.error) throw done.error; }
+      if(rows.length<100) return;
+    }
+  }catch(_error){}
+}
 async function openAdminApp(){
   await requireAdmin();
   $('loginScreen').style.display = 'none';
   $('adminShell').classList.remove('is-locked');
   ensureCustomerUpdateChannel();
+  cleanupQueuedStorage();
   await Promise.all([refreshMeta(), loadProducts(true)]);
 }
 async function validateLogin(email, password){
@@ -1322,57 +1338,113 @@ function ensureOrderRealtime(){
 function readEmployeePasswordCache(){
   try{ const value=JSON.parse(localStorage.getItem(EMPLOYEE_PASSWORD_CACHE_KEY)||'{}'); return value&&typeof value==='object'?value:{}; }catch(_error){ return {}; }
 }
-function rememberEmployeePassword(id,password){
-  id=clean(id); password=String(password||'');
-  if(!id||!password)return;
-  try{ const value=readEmployeePasswordCache(); value[id]=password; localStorage.setItem(EMPLOYEE_PASSWORD_CACHE_KEY,JSON.stringify(value)); }catch(_error){}
+async function migrateLegacyEmployeePasswords(rows){
+  const cache=readEmployeePasswordCache();
+  const candidates=(rows||[]).filter(emp=>!clean(emp.password)&&cache[clean(emp.id)]);
+  if(!candidates.length)return false;
+  let migrated=false;
+  for(const emp of candidates){
+    try{
+      const {data,error}=await supabaseClient().rpc('admin_store_employee_password',{p_employee_id:emp.id,p_password:String(cache[clean(emp.id)]||'')});
+      if(!error&&data===true){delete cache[clean(emp.id)];migrated=true;}
+    }catch(_error){}
+  }
+  try{
+    if(Object.keys(cache).length)localStorage.setItem(EMPLOYEE_PASSWORD_CACHE_KEY,JSON.stringify(cache));
+    else localStorage.removeItem(EMPLOYEE_PASSWORD_CACHE_KEY);
+  }catch(_error){}
+  return migrated;
 }
-function employeePasswordText(id){
-  const value=readEmployeePasswordCache();
-  return value[clean(id)] || '';
+function employeeById(id){return adminEmployees.find(item=>clean(item.id)===clean(id))||null;}
+async function copyText(value,successMessage='Copied'){
+  value=String(value??'');
+  if(!value)return;
+  try{
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(value);
+    else{
+      const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove();
+    }
+    setStatus(successMessage,'ok');
+  }catch(_error){setStatus('Could not copy.','error');}
 }
 function resetEmployeeForm(){
   if(!$('employeeForm'))return;
-  $('employeeForm').reset(); $('employeeId').value='';
+  $('employeeForm').reset(); $('employeeId').value=''; if($('employeePortalRole')) $('employeePortalRole').value='sales';
+}
+function renderEmployees(){
+  const box=$('employeeList');if(!box)return;
+  const activeCount=adminEmployees.filter(emp=>emp.is_active).length;
+  const suspendedCount=adminEmployees.length-activeCount;
+  const salesCount=adminEmployees.filter(emp=>clean(emp.portal_role||'sales')==='sales').length;
+  const managementCount=adminEmployees.filter(emp=>clean(emp.portal_role)==='management').length;
+  if($('employeeSummary'))$('employeeSummary').innerHTML=`<span class="active">${activeCount} active</span><span>${salesCount} sales</span><span>${managementCount} management</span><span class="suspended">${suspendedCount} suspended</span><span>${adminEmployees.length} total</span>`;
+  box.innerHTML=adminEmployees.length?adminEmployees.map(emp=>{
+    const id=clean(emp.id), password=String(emp.password||''), sessions=Math.max(0,Number(emp.active_sessions||0));
+    const passwordControl=password
+      ? `<div class="employee-credential"><span>Password</span><div class="employee-credential-value"><code class="employee-password-mask" data-employee-password-value="${esc(id)}">••••••••</code><button type="button" data-employee-password-toggle="${esc(id)}" aria-label="Show password">Show</button><button type="button" data-employee-copy-password="${esc(id)}" aria-label="Copy password">Copy</button></div></div>`
+      : `<div class="employee-credential"><span>Password</span><small class="employee-password-missing">Not recoverable yet. Reset it once to store the admin-visible encrypted copy.</small></div>`;
+    return `<article class="employee-row">
+      <div class="employee-row-copy">
+        <div class="employee-account-head"><b>${esc(emp.username)}</b><div class="employee-account-badges"><small class="employee-state role">${clean(emp.portal_role)==='management'?'Management':'Sales Staff'}</small><small class="employee-state ${emp.is_active?'active':'suspended'}">${emp.is_active?'Active':'Suspended'}</small></div></div>
+        <div class="employee-credential-grid">
+          <div class="employee-credential"><span>Employee ID</span><div class="employee-credential-value"><code>${esc(id)}</code><button type="button" data-employee-copy-id="${esc(id)}" aria-label="Copy employee ID">Copy</button></div></div>
+          ${passwordControl}
+        </div>
+        <small class="employee-row-meta"><span>Created ${esc(adminOrderDate(emp.created_at))}</span><span>${sessions} active session${sessions===1?'':'s'}</span><span>${clean(emp.portal_role)==='management'?'Management portal only':'Sales portal only'}</span><span>Same account can sign in on multiple devices</span></small>
+      </div>
+      <div class="employee-row-actions"><button type="button" data-employee-edit="${esc(id)}">Edit</button><button type="button" class="${emp.is_active?'danger-soft':''}" data-employee-toggle="${esc(id)}" data-active="${emp.is_active?'0':'1'}">${emp.is_active?'Suspend':'Restore'}</button></div>
+    </article>`;
+  }).join(''):'<div class="empty">No employees created yet.</div>';
 }
 async function loadEmployees(){
   await requireAdmin();
-  const {data,error}=await supabaseClient().rpc('admin_list_employees');
-  if(error){ if(/function|schema cache|admin_list_employees/i.test(error.message||'')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.'); throw error; }
+  let {data,error}=await supabaseClient().rpc('admin_list_employees');
+  if(error){
+    if(/function|schema cache|admin_list_employees/i.test(error.message||'')) throw new Error('Run REQUIRED_V107_SUPABASE.sql in Supabase first.');
+    throw error;
+  }
   adminEmployees=data||[];
-  const box=$('employeeList'); if(!box)return;
-  const passwordCache=readEmployeePasswordCache();
-  box.innerHTML=adminEmployees.length?adminEmployees.map(emp=>{
-    const savedPassword=passwordCache[clean(emp.id)]||'';
-    const passwordLine=savedPassword
-      ? `<small class="employee-password-line">Password: <code>${esc(savedPassword)}</code></small>`
-      : `<small class="employee-password-line is-missing">Password: not available here — set a new password once to save/show it on this admin browser.</small>`;
-    return `<article class="employee-row"><div class="employee-row-copy"><b>${esc(emp.username)}</b>${passwordLine}<small>${emp.is_active?'Active':'Disabled'} · Created ${esc(adminOrderDate(emp.created_at))}</small></div><div class="employee-row-actions"><button type="button" data-employee-edit="${esc(emp.id)}">Edit</button><button type="button" class="${emp.is_active?'danger-soft':''}" data-employee-toggle="${esc(emp.id)}" data-active="${emp.is_active?'0':'1'}">${emp.is_active?'Disable':'Enable'}</button></div></article>`;
-  }).join(''):'<div class="empty">No employees created yet.</div>';
+  if(await migrateLegacyEmployeePasswords(adminEmployees)){
+    const refreshed=await supabaseClient().rpc('admin_list_employees');
+    if(!refreshed.error)adminEmployees=refreshed.data||[];
+  }
+  renderEmployees();
 }
 async function saveEmployee(event){
   event.preventDefault();
-  const id=clean($('employeeId').value),username=clean($('employeeUsername').value),password=$('employeePassword').value||'';
+  const id=clean($('employeeId').value),username=clean($('employeeUsername').value),password=$('employeePassword').value||'',portalRole=clean($('employeePortalRole')?.value||'sales');
   if(!username)throw new Error('Enter employee username.');
-  if(!id && password.length<4)throw new Error('Create a password with at least 4 characters.');
+  if(!id&&password.length<4)throw new Error('Create a password with at least 4 characters.');
+  if(password&&password.length<4)throw new Error('Password must be at least 4 characters.');
   showBusy(id?'Updating employee...':'Creating employee...');
   try{
-    const {data,error}=await supabaseClient().rpc('admin_save_employee',{p_username:username,p_password:password,p_employee_id:id||null});
+    const {error}=await supabaseClient().rpc('admin_save_employee',{p_username:username,p_password:password,p_portal_role:portalRole,p_employee_id:id||null});
     if(error)throw error;
-    const savedId=clean(data)||id;
-    if(password) rememberEmployeePassword(savedId,password);
-    resetEmployeeForm(); await loadEmployees(); hideBusy(); setStatus(id?'Employee updated':'Employee created','ok');
+    resetEmployeeForm();await loadEmployees();hideBusy();setStatus(id?(password?'Employee updated and password reset':'Employee updated'):'Employee created','ok');
   }catch(error){hideBusy();setStatus(error.message,'error');}
 }
 function editEmployee(id){
-  const emp=adminEmployees.find(item=>item.id===id); if(!emp)return;
-  $('employeeId').value=emp.id; $('employeeUsername').value=emp.username; $('employeePassword').value=''; $('employeePassword').focus();
+  const emp=employeeById(id);if(!emp)return;
+  $('employeeId').value=emp.id;$('employeeUsername').value=emp.username;$('employeePassword').value='';if($('employeePortalRole'))$('employeePortalRole').value=clean(emp.portal_role||'sales');
+  $('employeeUsername').focus();
+  setStatus('Editing staff account. Leave password blank to keep it unchanged.','');
 }
 async function toggleEmployee(id,active){
+  const emp=employeeById(id);
+  const action=active?'restore':'suspend';
+  if(!confirm(`${active?'Restore':'Suspend'} ${emp?.username||'this employee'}?${active?'':' All current staff sessions will be signed out.'}`))return;
   const {error}=await supabaseClient().rpc('admin_set_employee_active',{p_employee_id:id,p_active:active});
   if(error)throw error;
   await loadEmployees();
-  setStatus(active?'Employee enabled':'Employee disabled','ok');
+  setStatus(active?'Employee restored':'Employee suspended and signed out on all devices','ok');
+}
+function toggleEmployeePassword(id,button){
+  const emp=employeeById(id);if(!emp?.password)return;
+  const code=document.querySelector(`[data-employee-password-value="${CSS.escape(clean(id))}"]`);
+  if(!code)return;
+  const showing=button.dataset.showing==='1';
+  if(showing){code.textContent='••••••••';code.classList.add('employee-password-mask');button.textContent='Show';button.dataset.showing='0';}
+  else{code.textContent=emp.password;code.classList.remove('employee-password-mask');button.textContent='Hide';button.dataset.showing='1';}
 }
 
 async function checkManualBarcode(code){
@@ -1466,6 +1538,9 @@ function bindEvents(){
     const offerItem = e.target.closest('[data-offer-item-edit]'); if(offerItem) openOfferItem(offerItem.dataset.offerItemEdit);
     const employeeEdit=e.target.closest('[data-employee-edit]'); if(employeeEdit){editEmployee(employeeEdit.dataset.employeeEdit);return;}
     const employeeToggle=e.target.closest('[data-employee-toggle]'); if(employeeToggle){toggleEmployee(employeeToggle.dataset.employeeToggle,employeeToggle.dataset.active==='1').catch(err=>setStatus(err.message,'error'));return;}
+    const employeePasswordToggle=e.target.closest('[data-employee-password-toggle]'); if(employeePasswordToggle){toggleEmployeePassword(employeePasswordToggle.dataset.employeePasswordToggle,employeePasswordToggle);return;}
+    const employeeCopyPassword=e.target.closest('[data-employee-copy-password]'); if(employeeCopyPassword){const emp=employeeById(employeeCopyPassword.dataset.employeeCopyPassword);copyText(emp?.password||'','Password copied');return;}
+    const employeeCopyId=e.target.closest('[data-employee-copy-id]'); if(employeeCopyId){copyText(employeeCopyId.dataset.employeeCopyId,'Employee ID copied');return;}
     const re = e.target.closest('[data-remove-existing-image]'); if(re){ currentImages.splice(Number(re.dataset.removeExistingImage),1); renderImagePreviews(); }
     const rn = e.target.closest('[data-remove-new-image]'); if(rn){ newImageFiles.splice(Number(rn.dataset.removeNewImage),1); renderImagePreviews(); }
     const rv = e.target.closest('[data-remove-variant]'); if(rv){ rv.closest('.variant-row')?.remove(); if(!$('variantList').querySelector('.variant-row')) renderVariantRows([]); else renumberVariantRows(); updateInventoryControls(); }

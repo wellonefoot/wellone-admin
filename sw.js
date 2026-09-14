@@ -1,11 +1,11 @@
 'use strict';
-const CACHE_VERSION='wellone-admin-v105-employee-parity-option-images';
+const CACHE_VERSION='wellone-admin-v107-roles-cleanup';
 const SHELL_CACHE=`${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE=`${CACHE_VERSION}-runtime`;
 const IMAGE_CACHE=`${CACHE_VERSION}-images`;
 const SHELL_ASSETS=[
-  './','./index.html','./css/admin.css?v=105','./js/admin-config.js?v=105','./js/admin.bundle.js?v=105','./js/pwa-install.js?v=105',
-  './manifest.webmanifest','./assets/logo.png?v=105','./assets/favicon/favicon.ico'
+  './','./index.html','./css/admin.css?v=107','./js/admin-config.js?v=107','./js/admin.bundle.js?v=107','./js/pwa-install.js?v=107',
+  './manifest.webmanifest','./assets/logo.png?v=107','./assets/favicon/favicon.ico'
 ];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(SHELL_CACHE).then(cache=>Promise.allSettled(SHELL_ASSETS.map(x=>cache.add(x)))).then(()=>self.skipWaiting()));
