@@ -1,4 +1,4 @@
-/* WellOne Admin v100 — application code. Supabase config is loaded separately from admin-config.js. */
+/* WellOne Admin v94 — application code. Supabase config is loaded separately from admin-config.js. */
 'use strict';
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').trim().replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]));
@@ -304,12 +304,11 @@ async function requireAdmin(force = false){
 async function ensureVariantAvailabilityReady(){
   const [variantRes, productRes] = await Promise.all([
     supabaseClient().from('product_variants').select('stock_status,stock,color,size').limit(1),
-    supabaseClient().from('products').select('barcode,barcode_enabled,track_inventory,stock_quantity,search_keywords').limit(1)
+    supabaseClient().from('products').select('barcode,barcode_enabled,track_inventory,stock_quantity').limit(1)
   ]);
   const error = variantRes.error || productRes.error;
   if(!error) return;
   if(/color|size/i.test(error.message || '')) throw new Error('Run supabase/08_orders_employees_variants.sql in Supabase first.');
-  if(/search_keywords/i.test(error.message || '')) throw new Error('Run supabase/14_search_keywords_staff_manage.sql in Supabase first.');
   if(/stock_status|stock_quantity|track_inventory|barcode|column/i.test(error.message || '')) throw new Error('Run supabase/05_inventory_barcode_offers.sql and then 08_orders_employees_variants.sql in Supabase first.');
   throw error;
 }
@@ -673,11 +672,11 @@ function updateVariantInheritanceUI(){
         imageRow?.classList.add('hide');
         imageSection?.classList.add('hide');
       }else{
-        if(imageTitle) imageTitle.textContent='Image for this option';
-        if(imageHelp) imageHelp.textContent='Optional · choose an image here to override the main product image for this exact option.';
-        if(imageToggle){ imageToggle.checked=true; imageToggle.disabled=true; }
-        imageSection?.classList.toggle('hide',mode==='simple');
-        imageRow?.classList.add('hide');
+        if(imageTitle) imageTitle.textContent='Separate image for this option';
+        if(imageHelp) imageHelp.textContent='Off = use the main product image.';
+        const show=Boolean(imageToggle?.checked || variantRowOwnImages(row));
+        imageSection?.classList.toggle('hide',!show);
+        imageRow?.classList.toggle('hide',mode==='simple');
       }
     }
     const priceToggle=row.querySelector('.variant-separate-price');
@@ -738,7 +737,11 @@ function updateVariantModeUI(){
   $('variantList')?.classList.toggle('is-simple-mode',simple);
   $('variantBulkPanel')?.classList.toggle('hide',simple);
   $('addVariantBtn')?.classList.toggle('hide',simple);
-  $('variantBulkImageWrap')?.classList.toggle('hide',!colorMode);
+  const bulkImageWrap=$('variantBulkImageWrap');
+  bulkImageWrap?.classList.toggle('hide',simple);
+  if($('variantBulkImageTitle')) $('variantBulkImageTitle').textContent=colorMode?'Colour image':'Option image';
+  if($('variantBulkImageHelp')) $('variantBulkImageHelp').textContent=colorMode?`One image is reused automatically for every ${variantOptionLabel().toLowerCase()} in this colour.`:'Optional. The selected image is attached immediately to the option value(s) you add now. Add another batch with a different image whenever needed.';
+  if($('variantBulkSharedImageBtn')) $('variantBulkSharedImageBtn').textContent=colorMode?'Add colour image':'Add option image';
   $('productImageStep')?.classList.toggle('hide',colorMode);
   $('optionTitleRow')?.classList.toggle('hide',simple);
   if($('productImageStepTitle')) $('productImageStepTitle').textContent=simple?'Product images':'Product images';
@@ -846,9 +849,9 @@ function collectVariantRows(){
     stockQuantity:nonNegativeInt(row.querySelector('.variant-quantity')?.value),
     stockStatus:effectiveVariantStatus(row),
     terms:[],
-    existingImages:clean($('variantSetupMode')?.value || inferredVariantMode())==='option' || row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingImages || '[]') : [],
-    existingPaths:clean($('variantSetupMode')?.value || inferredVariantMode())==='option' || row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingPaths || '[]') : [],
-    files:(clean($('variantSetupMode')?.value || inferredVariantMode())==='option' || row.querySelector('.variant-separate-image')?.checked) && Array.isArray(row.__variantFiles)?row.__variantFiles:[]
+    existingImages:row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingImages || '[]') : [],
+    existingPaths:row.querySelector('.variant-separate-image')?.checked ? JSON.parse(row.dataset.existingPaths || '[]') : [],
+    files:row.querySelector('.variant-separate-image')?.checked && Array.isArray(row.__variantFiles)?row.__variantFiles:[]
   })).filter(v => v.color || v.size || v.mrp || v.price || v.existingImages.length || v.files.length);
 }
 function exactOptionValues(value){
@@ -860,8 +863,6 @@ function expandExactVariantDrafts(rows){
   (rows || []).forEach(item=>{
     const values=exactOptionValues(item.size);
     if(values.length <= 1){ expanded.push({...item,size:values[0] || item.size}); return; }
-    const mode=clean($('variantSetupMode')?.value || inferredVariantMode());
-    if(mode==='option' && (item.existingImages?.length || item.files?.length)) throw new Error('Add comma-separated options as separate rows when using separate images, so each option keeps its own image.');
     values.forEach((size,index)=>expanded.push({
       ...item,
       id:index===0?item.id:'',
@@ -920,6 +921,7 @@ async function collectVariantsPayload(rows, uploadedPaths = []){
     }
   }
 
+  const optionFileAssets=new Map();
   for(const item of rows){
     let imageUrls=[];
     let storagePaths=[];
@@ -928,10 +930,14 @@ async function collectVariantsPayload(rows, uploadedPaths = []){
       imageUrls=[...shared.imageUrls];
       storagePaths=[...shared.storagePaths];
     }else{
-      const uploaded=await uploadFiles(item.files,'variants');
-      uploadedPaths.push(...uploaded.map(x=>x.path));
-      imageUrls=item.existingImages.concat(uploaded.map(x=>x.url));
-      storagePaths=item.existingPaths.concat(uploaded.map(x=>x.path));
+      const reused=[];
+      for(const file of (item.files || [])){
+        if(optionFileAssets.has(file)){ reused.push(optionFileAssets.get(file)); continue; }
+        const uploaded=await uploadFiles([file],'variants');
+        if(uploaded[0]){ optionFileAssets.set(file,uploaded[0]); reused.push(uploaded[0]); uploadedPaths.push(uploaded[0].path); }
+      }
+      imageUrls=item.existingImages.concat(reused.map(x=>x.url));
+      storagePaths=item.existingPaths.concat(reused.map(x=>x.path));
     }
     variants.push({
       id:item.id || '',
@@ -973,6 +979,7 @@ function quickAddColourSizes(){
   const existing=new Set(Array.from($('variantList').querySelectorAll('.variant-row')).map(row=>`${key(row.querySelector('.variant-color')?.value || 'default')}::${key(row.querySelector('.variant-size')?.value || 'standard')}`));
   const existingColourLead = mode==='color_option' ? Array.from($('variantList').querySelectorAll('.variant-row')).find(row=>key(row.querySelector('.variant-color')?.value)===key(color)) : null;
   let added=0, skipped=0, firstAddedRow=null;
+  const addedRows=[];
   sizes.forEach(size=>{
     const combo=`${key(color || 'default')}::${key(size)}`;
     if(existing.has(combo)){ skipped+=1; return; }
@@ -984,13 +991,18 @@ function quickAddColourSizes(){
       if(separatePrice) separatePrice.checked=Boolean($('variantBulkSeparatePrice')?.checked);
       row.querySelector('.variant-price-fields')?.classList.toggle('hide',!separatePrice?.checked);
       if(!firstAddedRow) firstAddedRow=row;
+      addedRows.push(row);
     }
     added+=1;
   });
-  if(mode==='color_option'){
+  {
     const file=$('variantBulkSharedImage')?.files?.[0];
-    const imageOwner=existingColourLead || firstAddedRow;
-    if(file && imageOwner){ imageOwner.__variantFiles=[file]; const toggle=imageOwner.querySelector('.variant-separate-image'); if(toggle) toggle.checked=true; renderVariantImages(imageOwner); }
+    if(file && mode==='color_option'){
+      const imageOwner=existingColourLead || firstAddedRow;
+      if(imageOwner){ imageOwner.__variantFiles=[file]; const toggle=imageOwner.querySelector('.variant-separate-image'); if(toggle) toggle.checked=true; renderVariantImages(imageOwner); }
+    }else if(file && mode==='option'){
+      addedRows.forEach(row=>{ row.__variantFiles=[file]; const toggle=row.querySelector('.variant-separate-image'); if(toggle) toggle.checked=true; renderVariantImages(row); });
+    }
   }
   updateVariantInheritanceUI();
   updateInventoryControls();
@@ -1017,7 +1029,7 @@ async function openProduct(id){
   const p = normalizeProduct(data);
   if(!p || !p.id) return;
   editingProductId = p.id;
-  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('searchKeywords')) $('searchKeywords').value = p.searchKeywords || ''; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock'); if($('barcodeEnabled')) $('barcodeEnabled').checked = p.barcodeEnabled; if($('barcodeValue')) $('barcodeValue').value = p.barcode || ''; if($('trackInventory')) $('trackInventory').checked = p.trackInventory; if($('productStockQuantity')) $('productStockQuantity').value = String(p.stockQuantity || 0);
+  $('editId').value = p.id; $('category').value = p.categoryId || categories.find(c=>key(c.name)===key(p.category))?.id || ''; $('subcategory').value = p.subcategory; renderProductSubcategoryOptions(false); $('productName').value = p.name; if($('searchKeywords')) $('searchKeywords').value = p.searchKeywords || ''; $('mrp').value = p.mrp; $('price').value = p.price; $('optionTitle').value = p.optionTitle || ''; $('sizes').value = p.sizes; $('colors').value = p.colors; $('description').value = p.description; if($('availability')) $('availability').value = p.status !== 'active' ? 'hidden' : (p.stockStatus || 'in_stock'); if($('barcodeEnabled')) $('barcodeEnabled').checked = p.barcodeEnabled; if($('barcodeValue')) $('barcodeValue').value = p.barcode || ''; if($('trackInventory')) $('trackInventory').checked = p.trackInventory; if($('productStockQuantity')) $('productStockQuantity').value = String(p.stockQuantity || 0);
   currentImages = p.images && p.images.length ? p.images : (p.image ? [p.image] : []); newImageFiles = []; renderImagePreviews(); renderTermChecks(p.terms);
   renderVariantRows(p.variants || []);
   $('formTitle').textContent = 'Edit product'; $('saveBtn').textContent = 'Update Product'; $('deleteBtn').style.display = 'inline-flex'; $('cancelEditBtn').classList.remove('hide'); switchView('add');
@@ -1084,7 +1096,7 @@ async function saveProduct(event){
     const productColors=mode==='color_option'?(visibleColors || 'Default'):'Default';
     const allOptionsHidden=variantRows.length>0 && visibleVariantRows.length===0;
     const mainMrp=price($('mrp').value) || variantDrafts.map(v=>price(v.mrp)).find(Boolean) || null;
-    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), search_keywords:[...new Map(splitList($('searchKeywords')?.value || '').map(value=>[key(value),clean(value)])).values()].join(', '), mrp:mainMrp, price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
+    const row = {category_id:category.id, subcategory_id:sub?.id || null, name, slug:slugify(name) + '-' + Date.now(), description:clean($('description').value), search_keywords:clean($('searchKeywords')?.value), mrp:mainMrp, price:pr, main_image_url:allImages[0] || variantRows[0]?.imageUrls?.[0] || '', option_title:mode==='simple'?'':clean($('optionTitle').value), sizes:productSizes, colors:productColors, terms:selectedProductTerms(), status: availability === 'hidden' ? 'hidden' : 'active', stock_status: allOptionsHidden ? 'out_of_stock' : (trackInventory ? trackedStatus : (availability === 'out_of_stock' ? 'out_of_stock' : 'in_stock')), stock_quantity:trackInventory ? calculatedStock : 0, track_inventory:trackInventory, barcode:barcode || null, barcode_enabled:barcodeEnabled, updated_at:new Date().toISOString()};
     let productId = id;
     let oldImagePaths = [];
     let oldVariantPaths = [];

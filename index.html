@@ -15,7 +15,7 @@
       }catch(_error){}
     })();
   </script>
-<link href="css/admin.css?v=100" rel="stylesheet"/>
+<link href="css/admin.css?v=105" rel="stylesheet"/>
 <link href="./assets/favicon/favicon.ico" rel="icon" type="image/x-icon"/>
 <link href="./assets/favicon/apple-icon-180x180.png" rel="apple-touch-icon"/>
 <link href="manifest.webmanifest" rel="manifest"/>
@@ -28,11 +28,11 @@
 </head>
 <body>
 <div aria-hidden="true" class="app-launch-splash" id="pwaLaunchSplash">
-<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=100" width="1100"/>
+<img alt="" fetchpriority="high" height="288" src="assets/logo.png?v=105" width="1100"/>
 </div>
 <section class="login-screen" id="loginScreen">
 <form class="login-card" id="loginForm">
-<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=100" width="1100"/>
+<img alt="Wellone logo" decoding="async" height="288" src="assets/logo.png?v=105" width="1100"/>
 <p class="tag">secure admin</p>
 <h1>Admin</h1>
 <input autocomplete="username" id="adminEmailInput" placeholder="Admin email" required="" type="email"/>
@@ -43,7 +43,7 @@
 </section>
 <div class="admin-shell is-locked" id="adminShell">
 <header class="admin-head">
-<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=100" width="1100"/></a>
+<a class="admin-logo"><img alt="Wellone" decoding="async" height="288" src="assets/logo.png?v=105" width="1100"/></a>
 <button class="menu-toggle" id="menuToggle" type="button">☰</button>
 <nav class="admin-menu" id="adminMenu">
 <button class="active" data-view="products" type="button">Products</button>
@@ -95,6 +95,7 @@
 </div>
 <small class="hint hide" id="categoryHint"></small>
 <label>Product name<input id="productName" placeholder="Name" required=""/></label>
+<label>Search keywords <small class="optional">Hidden from customers</small><textarea id="searchKeywords" placeholder="v strap, strap, casual sandal, lightweight footwear" rows="2"></textarea><small class="hint">Separate words or phrases with commas. Customer search checks these keywords, but they are never shown on customer pages.</small></label>
 <section aria-labelledby="inventoryTitle" class="inventory-box">
 <div class="inventory-head"><div><b id="inventoryTitle">Inventory &amp; barcode</b><small>Keep identification, quantity and availability simple.</small></div></div>
 <div class="inventory-toggle-grid">
@@ -109,7 +110,6 @@
 </section>
 <label class="availability-main-row">Availability<select id="availability"><option value="in_stock">Available</option><option value="out_of_stock">Out of stock</option><option value="hidden">Hide product</option></select></label>
 <label>Description<textarea id="description" placeholder="Short product detail" rows="3"></textarea></label>
-<label>Search keywords <small class="optional">Hidden from customers · separate words or phrases with commas</small><textarea id="searchKeywords" placeholder="V strap, strap sandal, casual footwear" rows="2"></textarea><small class="hint">Used only for customer search. These keywords are never displayed on customer pages.</small></label>
 <div class="term-picker"><b>Product policies</b><div class="check-grid" id="productTermChecks"></div></div>
 <div class="variant-box">
 <div class="variant-head"><div><b>Product type &amp; options</b><small id="variantModeHelp">Choose the simplest setup that matches this product.</small></div><button id="addVariantBtn" type="button">+ Add one option</button></div>
@@ -135,7 +135,7 @@
 <label id="variantBulkQtyWrap">Qty each <small class="optional">When all options use the same quantity</small><input id="variantBulkQty" inputmode="numeric" min="0" step="1" type="number" value="0"/></label>
 </div>
 <div class="variant-builder-switches">
-<label class="builder-colour-image hide" id="variantBulkImageWrap"><span><b>Colour image</b><small>One image is reused automatically for every size/option in this colour.</small></span><span class="stylish-file-control"><button class="stylish-upload-btn" id="variantBulkSharedImageBtn" type="button">Add colour image</button><small id="variantBulkSharedImageName">No image selected</small><input id="variantBulkSharedImage" type="file" accept="image/*" hidden/></span></label>
+<label class="builder-colour-image hide" id="variantBulkImageWrap"><span><b id="variantBulkImageTitle">Option image</b><small id="variantBulkImageHelp">Optional. The selected image is attached immediately to the option value(s) you add now.</small></span><span class="stylish-file-control"><button class="stylish-upload-btn" id="variantBulkSharedImageBtn" type="button">Add option image</button><small id="variantBulkSharedImageName">No image selected</small><input id="variantBulkSharedImage" type="file" accept="image/*" hidden/></span></label>
 <label class="switch-row compact-switch"><span><b>Separate rates</b><small>Turn on to enter a separate MRP and final price for each value.</small></span><input id="variantBulkSeparatePrice" type="checkbox"/></label>
 <label class="switch-row compact-switch"><span><b>Separate quantities</b><small>Turn on to enter stock separately for every size/option.</small></span><input id="variantBulkSeparateQty" type="checkbox"/></label>
 </div>
@@ -229,8 +229,8 @@
 </div>
 <div class="busy-overlay" id="busy"><div><b></b><span id="busyText">Working...</span></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/admin-config.js?v=100"></script>
-<script src="js/admin.bundle.js?v=100"></script>
-<script src="js/pwa-install.js?v=100"></script>
+<script src="js/admin-config.js?v=105"></script>
+<script src="js/admin.bundle.js?v=105"></script>
+<script src="js/pwa-install.js?v=105"></script>
 </body>
 </html>
