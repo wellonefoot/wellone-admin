@@ -1,10 +1,10 @@
 'use strict';
-const CACHE_VERSION='shopizo-admin-v107-branding';
+const CACHE_VERSION='shopizo-admin-v108-staff-sales';
 const SHELL_CACHE=`${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE=`${CACHE_VERSION}-runtime`;
 const IMAGE_CACHE=`${CACHE_VERSION}-images`;
 const SHELL_ASSETS=[
-  './','./index.html','./css/admin.css?v=107','./js/admin-config.js?v=107','./js/admin.bundle.js?v=107','./js/pwa-install.js?v=107',
+  './','./index.html','./css/admin.css?v=108','./js/admin-config.js?v=107','./js/admin.bundle.js?v=108','./js/pwa-install.js?v=107',
   './manifest.webmanifest?v=shopizo-admin-20261006-1','./assets/logo.png?v=shopizo-admin-20261006-1','./assets/favicon/favicon.ico?v=shopizo-admin-20261006-1'
 ];
 self.addEventListener('install',event=>{

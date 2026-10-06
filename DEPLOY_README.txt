@@ -1,3 +1,7 @@
+SHOPIZO Admin v108 — staff sales dashboard
+1. Run REQUIRED_V108_SUPABASE.sql once in Supabase SQL Editor.
+2. Deploy this folder. Open Staff Sales to filter by staff/date and view the leaderboard.
+
 WellOne Admin v88 — stable login + 20-product infinite loading
 
 DATABASE

@@ -59,6 +59,9 @@ let offers = [];
 let offerItems = [];
 let adminOrders = [];
 let adminEmployees = [];
+let adminStaffSalesDashboard = {sales:[],leaderboard:[],staff:[],totals:{transactions:0,units:0,amount:0}};
+let adminStaffSalesLoaded = false;
+let adminStaffSalesDatesInitialized = false;
 const EMPLOYEE_PASSWORD_CACHE_KEY = 'wellone_admin_employee_passwords_v1';
 let orderRealtimeChannel = null;
 let orderReloadTimer = null;
@@ -574,6 +577,50 @@ function renderOfferItems(){
     return `<article class="admin-product offer-item-row"><div class="offer-item-icon">%</div><div><b>${esc(item.title || 'Promotional item')}</b><small>${esc(item.link)} · Offer ${rupee(item.offerPrice)}${item.discount ? ` · ${esc(item.discount)}% discount` : ''}${validity} · ${expired ? 'Expired' : item.active ? 'Active' : 'Hidden'}</small></div><button type="button" data-offer-item-edit="${esc(item.id)}">Edit</button></article>`;
   }).join('') : '<div class="empty">No promotional items added yet.</div>';
 }
+function adminDateValue(date){
+  const y=date.getFullYear(),m=String(date.getMonth()+1).padStart(2,'0'),d=String(date.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+function setDefaultAdminSalesDates(){
+  const from=$('adminSalesFrom'),to=$('adminSalesTo');
+  if(!from||!to||from.value||to.value)return;
+  const today=new Date(),start=new Date(today.getFullYear(),today.getMonth(),1);
+  from.value=adminDateValue(start);to.value=adminDateValue(today);
+}
+function adminSaleTime(value){
+  try{return new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value));}catch(_e){return clean(value);}
+}
+function renderStaffSalesDashboard(){
+  const data=adminStaffSalesDashboard||{};
+  const totals=data.totals||{};
+  if($('adminSalesTotals'))$('adminSalesTotals').innerHTML=`<div><small>Sales</small><b>${Number(totals.transactions||0).toLocaleString('en-IN')}</b></div><div><small>Units sold</small><b>${Number(totals.units||0).toLocaleString('en-IN')}</b></div><div><small>Sales value</small><b>${esc(rupee(totals.amount||0)||'₹0')}</b></div>`;
+  const staff=Array.isArray(data.staff)?data.staff:[];
+  const staffSelect=$('adminSalesStaff');
+  if(staffSelect){const selected=staffSelect.value;staffSelect.innerHTML='<option value="">All Sales Staff</option>'+staff.map(x=>`<option value="${esc(x.id)}">${esc(x.username)}${x.is_active===false?' (suspended)':''}</option>`).join('');staffSelect.value=staff.some(x=>clean(x.id)===selected)?selected:'';}
+  const leaderboard=Array.isArray(data.leaderboard)?data.leaderboard:[];
+  if($('adminSalesLeaderboard'))$('adminSalesLeaderboard').innerHTML=leaderboard.length?leaderboard.map((row,index)=>`<article class="staff-leader-row ${index===0?'top':''}"><span class="staff-leader-rank">${index+1}</span><div><b>${esc(row.username||'Staff')}</b><small>${Number(row.transactions||0)} sale${Number(row.transactions||0)===1?'':'s'} · ${esc(rupee(row.amount||0)||'₹0')}</small></div><strong>${Number(row.units||0).toLocaleString('en-IN')} units</strong></article>`).join(''):'<div class="empty">No staff sales in this date range.</div>';
+  let sales=Array.isArray(data.sales)?[...data.sales]:[];
+  const sort=$('adminSalesSort')?.value||'newest';
+  if(sort==='staff')sales.sort((a,b)=>clean(a.employee_username).localeCompare(clean(b.employee_username))||new Date(b.created_at)-new Date(a.created_at));
+  else if(sort==='quantity')sales.sort((a,b)=>Number(b.quantity||0)-Number(a.quantity||0)||new Date(b.created_at)-new Date(a.created_at));
+  else sales.sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  if($('adminSalesList'))$('adminSalesList').innerHTML=sales.length?sales.map(row=>`<article class="staff-sale-row"><div class="staff-sale-main"><span class="staff-sale-avatar">${esc((row.employee_username||'?').slice(0,1).toUpperCase())}</span><div><b>${esc(row.product_name||'Product')}</b><small>${row.variant_label?esc(row.variant_label):'Standard item'}${row.barcode?` · ${esc(row.barcode)}`:''}</small></div></div><div class="staff-sale-by"><small>Sold by</small><b>${esc(row.employee_username||'Unknown')}</b></div><div class="staff-sale-qty"><strong>×${Number(row.quantity||0)}</strong><small>${esc(rupee(row.total_amount||0)||'₹0')}</small></div><time>${esc(adminSaleTime(row.created_at))}</time></article>`).join(''):'<div class="empty">No sales found for this filter.</div>';
+}
+async function loadStaffSales(){
+  await requireAdmin();
+  if(!adminStaffSalesDatesInitialized){setDefaultAdminSalesDates();adminStaffSalesDatesInitialized=true;}
+  setStatus('Loading staff sales...','loading');
+  const params={p_employee_id:$('adminSalesStaff')?.value||null,p_from:$('adminSalesFrom')?.value||null,p_to:$('adminSalesTo')?.value||null};
+  const {data,error}=await supabaseClient().rpc('admin_staff_sales_dashboard',params);
+  if(error){
+    if(/admin_staff_sales_dashboard|schema cache|function/i.test(error.message||''))throw new Error('Run REQUIRED_V108_SUPABASE.sql in Supabase first.');
+    throw error;
+  }
+  adminStaffSalesDashboard=data||{sales:[],leaderboard:[],staff:[],totals:{}};
+  adminStaffSalesLoaded=true;
+  renderStaffSalesDashboard();
+  setStatus(`Loaded ${Number(adminStaffSalesDashboard?.totals?.units||0).toLocaleString('en-IN')} staff-sold unit${Number(adminStaffSalesDashboard?.totals?.units||0)===1?'':'s'} ✅`,'ok');
+}
 function switchView(view){
   document.querySelectorAll('.view-panel').forEach(x=>x.classList.remove('active'));
   const panel = $('view' + view[0].toUpperCase() + view.slice(1));
@@ -581,6 +628,7 @@ function switchView(view){
   document.querySelectorAll('.admin-menu [data-view]').forEach(b=>b.classList.toggle('active', b.dataset.view === view));
   $('adminMenu').classList.remove('open');
   if(view === 'employees') loadEmployees().catch(err=>setStatus(err.message,'error'));
+  if(view === 'sales') loadStaffSales().catch(err=>setStatus(err.message,'error'));
 }
 function renderImagePreviews(){
   const baseExisting = currentImages.map((url,i)=>`<div class="preview-item"><img src="${esc(url)}"><button type="button" data-remove-existing-image="${i}">×</button></div>`).join('');
@@ -1528,6 +1576,11 @@ function bindEvents(){
   $('orderSearchInput')?.addEventListener('input',renderAdminOrders);
   $('employeeForm')?.addEventListener('submit',saveEmployee);
   $('employeeResetBtn')?.addEventListener('click',resetEmployeeForm);
+  $('adminSalesRefresh')?.addEventListener('click',()=>loadStaffSales().catch(err=>setStatus(err.message,'error')));
+  $('adminSalesApply')?.addEventListener('click',()=>loadStaffSales().catch(err=>setStatus(err.message,'error')));
+  $('adminSalesStaff')?.addEventListener('change',()=>loadStaffSales().catch(err=>setStatus(err.message,'error')));
+  $('adminSalesSort')?.addEventListener('change',renderStaffSalesDashboard);
+  $('adminSalesAllTime')?.addEventListener('click',()=>{if($('adminSalesFrom'))$('adminSalesFrom').value='';if($('adminSalesTo'))$('adminSalesTo').value='';loadStaffSales().catch(err=>setStatus(err.message,'error'));});
   document.addEventListener('click', e => {
     const subcategoryOption = e.target.closest('[data-subcategory-option]');
     if(subcategoryOption){ chooseProductSubcategory(subcategoryOption.dataset.subcategoryOption); return; }

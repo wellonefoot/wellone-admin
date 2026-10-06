@@ -15,7 +15,7 @@
       }catch(_error){}
     })();
   </script>
-<link href="css/admin.css?v=107" rel="stylesheet"/>
+<link href="css/admin.css?v=108" rel="stylesheet"/>
 <link href="./assets/favicon/favicon.ico?v=shopizo-admin-20261006-1" rel="icon" type="image/x-icon"/>
 <link href="./assets/favicon/apple-icon-180x180.png?v=shopizo-admin-20261006-1" rel="apple-touch-icon"/>
 <link href="manifest.webmanifest?v=shopizo-admin-20261006-1" rel="manifest"/>
@@ -51,6 +51,7 @@
 <button data-view="categories" type="button">Categories</button>
 <button data-view="offers" type="button">Offers</button>
 
+<button data-view="sales" type="button">Staff Sales</button>
 <button data-view="employees" type="button">Employees</button>
 
 <button id="logoutBtn" type="button">Logout</button>
@@ -172,8 +173,23 @@
 <div class="category-list" id="categoryManagerList"></div>
 </section>
 
+<section class="view-panel clean-card" id="viewSales">
+<div class="panel-head"><div><p class="tag">staff performance</p><h1>Staff Sales</h1><p>See every sale recorded by Sales Staff accounts, filter by staff or date, and compare who sold more.</p></div><div class="panel-actions"><button class="submit-small" id="adminSalesRefresh" type="button">Refresh</button></div></div>
+<div class="staff-sales-filters">
+<label>Staff<select id="adminSalesStaff"><option value="">All Sales Staff</option></select></label>
+<label>From<input id="adminSalesFrom" type="date"/></label>
+<label>To<input id="adminSalesTo" type="date"/></label>
+<label>Sort<select id="adminSalesSort"><option value="newest">Newest first</option><option value="staff">Staff name</option><option value="quantity">Highest quantity</option></select></label>
+<button id="adminSalesApply" type="button">Apply</button>
+<button class="ghost-btn" id="adminSalesAllTime" type="button">All time</button>
+</div>
+<div class="staff-sales-total-grid" id="adminSalesTotals"><div><small>Sales</small><b>0</b></div><div><small>Units sold</small><b>0</b></div><div><small>Sales value</small><b>₹0</b></div></div>
+<section class="staff-sales-leaderboard-wrap"><div class="subpanel-head"><div><b>Staff leaderboard</b><small>Ranked by units sold for the selected date range.</small></div></div><div class="staff-sales-leaderboard" id="adminSalesLeaderboard"><div class="empty">No sales yet.</div></div></section>
+<section class="staff-sales-history-wrap"><div class="subpanel-head"><div><b>All staff sales</b><small>Every Mark Sold action is permanently attributed to the staff account that recorded it.</small></div></div><div class="staff-sales-list" id="adminSalesList"><div class="empty">No sales loaded.</div></div></section>
+</section>
+
 <section class="view-panel clean-card" id="viewEmployees">
-<div class="panel-head"><div><p class="tag">staff access</p><h1>Employees</h1><p>Create separate Sales Staff and Management accounts, view credentials, and suspend or restore access.</p></div></div>
+<div class="panel-head"><div><p class="tag">staff access</p><h1>Employees</h1><p>Create one unique account for each Sales Staff or Management user, view credentials, and suspend or restore access.</p></div></div>
 <div class="employee-admin-note"><b>Admin accounts stay Supabase-only.</b><span>Admin email/password accounts are created and managed only in Supabase Authentication + the admin_users table. This page only manages staff accounts.</span></div>
 <form class="employee-form" id="employeeForm">
 <input id="employeeId" type="hidden"/>
@@ -232,7 +248,7 @@
 <div class="busy-overlay" id="busy"><div><b></b><span id="busyText">Working...</span></div></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/admin-config.js?v=107"></script>
-<script src="js/admin.bundle.js?v=107"></script>
+<script src="js/admin.bundle.js?v=108"></script>
 <script src="js/pwa-install.js?v=107"></script>
 </body>
 </html>

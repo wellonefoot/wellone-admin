@@ -1,0 +1,10 @@
+SHOPIZO v108 — Admin Staff Sales dashboard
+
+- Added Staff Sales page.
+- Filter sales by Sales Staff account and date range.
+- Sort the sale list by newest, staff name or quantity.
+- Leaderboard ranks staff by units sold for the selected date range.
+- Admin sees total sales, units sold and sales value.
+- Every staff sale is permanently linked to the account that recorded it.
+
+IMPORTANT: Run REQUIRED_V108_SUPABASE.sql once before opening Staff Sales.
