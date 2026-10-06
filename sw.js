@@ -1,17 +1,17 @@
 'use strict';
-const CACHE_VERSION='wellone-admin-v107-roles-cleanup';
+const CACHE_VERSION='shopizo-admin-v107-branding';
 const SHELL_CACHE=`${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE=`${CACHE_VERSION}-runtime`;
 const IMAGE_CACHE=`${CACHE_VERSION}-images`;
 const SHELL_ASSETS=[
   './','./index.html','./css/admin.css?v=107','./js/admin-config.js?v=107','./js/admin.bundle.js?v=107','./js/pwa-install.js?v=107',
-  './manifest.webmanifest','./assets/logo.png?v=107','./assets/favicon/favicon.ico'
+  './manifest.webmanifest?v=shopizo-admin-20261006-1','./assets/logo.png?v=shopizo-admin-20261006-1','./assets/favicon/favicon.ico?v=shopizo-admin-20261006-1'
 ];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(SHELL_CACHE).then(cache=>Promise.allSettled(SHELL_ASSETS.map(x=>cache.add(x)))).then(()=>self.skipWaiting()));
 });
 self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('wellone-admin-')&&!k.startsWith(CACHE_VERSION)).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('wellone-admin-')||k.startsWith('shopizo-admin-')&&!k.startsWith(CACHE_VERSION)).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
 });
 function urlOf(request){try{return new URL(request.url);}catch(_e){return null;}}
 function isSupabaseRequest(request){const u=urlOf(request);return Boolean(u&&u.hostname.endsWith('.supabase.co'));}
